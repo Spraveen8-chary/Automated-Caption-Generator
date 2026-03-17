@@ -63,8 +63,8 @@ caption-generator/
 ### 1. Clone and Setup
 
 ```sh
-git clone https://github.com/yourname/caption-generator.git
-cd caption-generator
+git clone https://github.com/Spraveen8-chary/Automated-Caption-Generator.git
+cd Automated-Caption-Generator
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
