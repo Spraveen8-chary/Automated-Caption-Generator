@@ -21,6 +21,36 @@ Effortlessly add accurate, AI-powered captions to your videos in 40+ languages. 
 ## 📸 Screenshots
 
 <!-- Add usage screenshots and the admin dashboard here as needed -->
+1. Register Page
+  <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/1725350b-6311-4312-843c-c07ee119cb61" />
+
+2. Login Page
+   <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/0d840c34-7213-4442-ad79-7b9097a6c4df" />
+
+3. Home Page
+   <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/56d6d9c0-b23e-4222-83ad-27693c4f2a8b" />
+
+4. Options
+   <img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/8761adab-188a-4797-8536-82176a013ef5" />
+
+5. Results
+   <img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/a0578270-d9df-40d0-bc5f-00dd29377c27" />
+
+6. Exporting
+   <img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/67cda1a0-5ade-425f-b5c7-ca870c857b87" />
+
+7. Reaching Subscription Limit
+   <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/b94e1297-8065-4245-8d73-c728cab56a10" />
+
+8. History
+   <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/56801756-80cd-4219-94e8-76fcd249e6c4" />
+
+9. Admin Dashboard
+    <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5602ba8a-065b-41b2-88a0-02aa6daf0ba5" />
+    <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/d58cda97-69c3-42e6-9868-8f1bc96cfead" />
+    <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/92536ef0-a499-4f82-bc07-f7c66257f3da" />
+    <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8ca19944-f203-418d-9951-e8e33d96482a" />
+
 
 ***
 
