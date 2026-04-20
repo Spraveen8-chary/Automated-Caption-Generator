@@ -2,6 +2,7 @@ import logging
 import json
 import re
 import time
+import os
 from google import genai
 from google.genai import types
 
@@ -13,7 +14,13 @@ class TranscriptionService:
     
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key)
-        self.model = "gemini-2.0-flash-exp"
+        self.model = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+        fallback_models = os.getenv('GEMINI_MODEL_FALLBACKS', 'gemini-2.0-flash')
+        self.fallback_models = [
+            candidate.strip()
+            for candidate in fallback_models.split(',')
+            if candidate.strip() and candidate.strip() != self.model
+        ]
         
         # Comprehensive language map including Indian languages
         self.language_map = {
@@ -165,25 +172,11 @@ CRITICAL RULES:
 5. Timestamps must be accurate
 6. Return ONLY the JSON object, nothing else
 
-Target Language: {language_name}
+            Target Language: {language_name}
 Language Code: {language}"""
-            
-            # Generate transcription - Use file URI reference
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_text(text=prompt),
-                            types.Part.from_uri(
-                                file_uri=uploaded_file.uri,
-                                mime_type=uploaded_file.mime_type
-                            )
-                        ]
-                    )
-                ]
-            )
+
+            # Generate transcription - use the first model that is available
+            response = self._generate_content_with_fallbacks(uploaded_file, prompt)
             
             # Parse response
             result = self._parse_response(response.text, audio_path, language, language_name)
@@ -202,6 +195,53 @@ Language Code: {language}"""
         except Exception as e:
             logger.error(f"Transcription error: {str(e)}")
             raise Exception(f"Failed to transcribe audio: {str(e)}")
+
+    def _generate_content_with_fallbacks(self, uploaded_file, prompt):
+        """Try the configured Gemini model and fall back when a model alias disappears."""
+        candidates = [self.model, *self.fallback_models]
+        last_error = None
+
+        for model_name in candidates:
+            try:
+                logger.info(f"Generating transcription with model: {model_name}")
+                return self.client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text=prompt),
+                                types.Part.from_uri(
+                                    file_uri=uploaded_file.uri,
+                                    mime_type=uploaded_file.mime_type
+                                )
+                            ]
+                        )
+                    ]
+                )
+            except Exception as e:
+                last_error = e
+                if self._should_fallback_on_model_error(e) and model_name != candidates[-1]:
+                    logger.warning(f"Model {model_name} was not available, trying fallback")
+                    continue
+                raise
+
+        if last_error is not None:
+            raise last_error
+
+    def _should_fallback_on_model_error(self, error):
+        """Return True when the exception indicates the model alias is unavailable."""
+        message = str(error).lower()
+        return (
+            'not found for api version' in message
+            or 'not supported for generatecontent' in message
+            or '"status": "not_found"' in message
+            or '404 not found' in message
+            or '503 unavailable' in message
+            or '"status": "unavailable"' in message
+            or '429 too many requests' in message
+            or '"status": "resource_exhausted"' in message
+        )
     
     def _parse_response(self, response_text, audio_path, language='en', language_name='English'):
         """

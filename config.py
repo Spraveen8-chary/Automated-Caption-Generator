@@ -20,9 +20,11 @@ class Config:
     
     # API settings
     GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+    GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+    GEMINI_MODEL_FALLBACKS = os.getenv('GEMINI_MODEL_FALLBACKS', 'gemini-2.0-flash')
     
     # Processing settings
-        # Processing settings
+    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     AUDIO_FORMAT = 'mp3'
     SUPPORTED_LANGUAGES = [
         # Indian Languages

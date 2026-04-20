@@ -38,8 +38,12 @@ const transcriptEditor = document.getElementById('transcriptEditor');
 const transcriptMeta = document.getElementById('transcriptMeta');
 const transcriptStatus = document.getElementById('transcriptStatus');
 const saveTranscriptBtn = document.getElementById('saveTranscriptBtn');
+const previewStylesBtn = document.getElementById('previewStylesBtn');
 const exportTranscriptBtn = document.getElementById('exportTranscriptBtn');
 const editTranscriptBtn = document.getElementById('editTranscriptBtn');
+
+const stylePreviewSection = document.getElementById('stylePreviewSection');
+const stylePreviewGrid = document.getElementById('stylePreviewGrid');
 
 const resultsSection = document.getElementById('resultsSection');
 const previewList = document.getElementById('previewList');
@@ -97,6 +101,9 @@ function handleStyleSelection() {
         if (cb.checked) checked.push(cb.value);
     });
     state.selectedStyles = checked;
+    if (state.transcriptJobId) {
+        previewStyles();
+    }
 }
 
 // Language selection
@@ -109,6 +116,7 @@ generateBtn.addEventListener('click', processVideo);
 
 // Transcript actions
 saveTranscriptBtn.addEventListener('click', saveTranscript);
+previewStylesBtn.addEventListener('click', previewStyles);
 exportTranscriptBtn.addEventListener('click', exportTranscript);
 editTranscriptBtn.addEventListener('click', () => {
     transcriptSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -181,6 +189,7 @@ async function processVideo() {
         actionSection.style.display = 'none';
         errorSection.style.display = 'none';
         transcriptSection.style.display = 'none';
+        stylePreviewSection.style.display = 'none';
         resultsSection.style.display = 'none';
         progressSection.style.display = 'block';
         updateProgress(0, 'Uploading video...');
@@ -316,6 +325,7 @@ function showTranscriptEditor(data) {
     transcriptStatus.textContent = 'Draft';
     transcriptMeta.textContent = `${transcript.original_filename} | ${transcript.segments.length} segments | ${formatLanguageLabel(state.selectedLanguage)}`;
     renderTranscriptEditor(transcript);
+    previewStyles();
     window.scrollTo({ top: transcriptSection.offsetTop - 20, behavior: 'smooth' });
 }
 
@@ -345,12 +355,91 @@ async function saveTranscript() {
 
         state.transcript = result.transcript;
         transcriptStatus.textContent = 'Saved';
+        await previewStyles();
     } catch (error) {
         transcriptStatus.textContent = 'Draft';
         showError(error.message);
     } finally {
         saveTranscriptBtn.disabled = false;
     }
+}
+
+async function previewStyles() {
+    try {
+        if (!state.transcriptJobId) {
+            return;
+        }
+
+        if (!state.selectedStyles || state.selectedStyles.length === 0) {
+            return;
+        }
+
+        previewStylesBtn.disabled = true;
+
+        const response = await fetch(`/transcripts/${state.transcriptJobId}/styles`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                styles: state.selectedStyles
+            })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || 'Style preview failed');
+        }
+
+        renderStylePreviews(result.styles || []);
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        previewStylesBtn.disabled = false;
+    }
+}
+
+function renderStylePreviews(stylePreviews) {
+    stylePreviewGrid.innerHTML = '';
+
+    if (!stylePreviews || stylePreviews.length === 0) {
+        stylePreviewSection.style.display = 'none';
+        return;
+    }
+
+    stylePreviewSection.style.display = 'block';
+
+    stylePreviews.forEach(preview => {
+        const card = document.createElement('div');
+        card.className = 'style-preview-card';
+
+        const header = document.createElement('div');
+        header.className = 'style-preview-card__header';
+
+        const title = document.createElement('h4');
+        title.textContent = capitalize(preview.style);
+
+        const count = document.createElement('span');
+        count.className = 'style-preview-card__count';
+        count.textContent = `${preview.total_captions} captions`;
+
+        header.appendChild(title);
+        header.appendChild(count);
+
+        const list = document.createElement('div');
+        list.className = 'style-preview-card__body';
+
+        (preview.captions || []).forEach((caption, index) => {
+            const item = document.createElement('div');
+            item.className = 'style-preview-item';
+            item.textContent = `${index + 1}. ${caption.text}`;
+            list.appendChild(item);
+        });
+
+        card.appendChild(header);
+        card.appendChild(list);
+        stylePreviewGrid.appendChild(card);
+    });
 }
 
 async function exportTranscript() {
@@ -401,8 +490,9 @@ async function exportTranscript() {
 
 function showExportResults(data) {
     progressSection.style.display = 'none';
-    transcriptSection.style.display = 'block';
-    resultsSection.style.display = 'block';
+        transcriptSection.style.display = 'block';
+        stylePreviewSection.style.display = 'block';
+        resultsSection.style.display = 'block';
     previewList.innerHTML = '';
 
     const results = data.results || [];
@@ -474,6 +564,7 @@ function reset() {
     actionSection.style.display = 'none';
     progressSection.style.display = 'none';
     transcriptSection.style.display = 'none';
+    stylePreviewSection.style.display = 'none';
     resultsSection.style.display = 'none';
     errorSection.style.display = 'none';
     generateBtn.disabled = false;
@@ -491,6 +582,7 @@ function reset() {
     transcriptEditor.innerHTML = '';
     transcriptMeta.textContent = 'Edit the raw transcript before exporting styles.';
     transcriptStatus.textContent = 'Draft';
+    stylePreviewGrid.innerHTML = '';
     previewList.innerHTML = '';
     totalCaptionsEl.textContent = '0';
     selectedStyleEl.textContent = 'Ready';

@@ -1,4 +1,5 @@
 import os
+import logging
 
 from repositories.processing_repository import ProcessingRepository
 from repositories.transcript_repository import TranscriptRepository
@@ -7,6 +8,8 @@ from services.preview_service import PreviewService
 from services.style_service import StyleService
 from services.transcription_provider import GeminiTranscriptionProvider
 from utils.video_processor import VideoProcessor
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptService:
@@ -45,8 +48,20 @@ class TranscriptService:
         if not existing_usage and not user.is_premium and self.processing_repository.get_user_video_count(user.id) >= 2:
             raise PermissionError('You have reached your free limit (2 videos). Please upgrade to premium.')
 
-        audio_path = self.video_processor.extract_audio(video_path)
+        logger.info(
+            "transcript.process.started",
+            extra={
+                'user_id': user.id,
+                'source_filename': filename,
+                'language': language,
+                'styles': styles,
+            },
+        )
+
+        audio_path = None
+        cleanup_source_video = False
         try:
+            audio_path = self.video_processor.extract_audio(video_path)
             transcript = self.transcription_provider.transcribe(audio_path, language)
             job = self.transcript_repository.create_job(
                 user_id=user.id,
@@ -64,6 +79,18 @@ class TranscriptService:
 
             videos_processed = self.processing_repository.get_user_video_count(user.id)
             videos_remaining = 'unlimited' if user.is_premium else max(2 - videos_processed, 0)
+            cleanup_source_video = True
+
+            logger.info(
+                "transcript.process.completed",
+                extra={
+                    'user_id': user.id,
+                    'job_id': job.id,
+                    'source_filename': filename,
+                    'language': language,
+                    'styles': styles,
+                },
+            )
 
             return {
                 'success': True,
@@ -76,13 +103,36 @@ class TranscriptService:
                 'message': 'Transcript generated successfully',
             }
         finally:
-            self.video_processor.cleanup_file(audio_path)
+            self.video_processor.cleanup_processing_artifacts(video_path, cleanup_source=cleanup_source_video)
 
     def get_transcript_job(self, user, job_id):
         job = self.transcript_repository.get_job(job_id, user_id=user.id)
         if job is None:
             raise FileNotFoundError('Transcript not found')
         return self.transcript_repository.serialize_job(job)
+
+    def preview_styles(self, user, job_id, styles=None):
+        styles = styles or ['meme']
+        job = self.transcript_repository.get_job(job_id, user_id=user.id)
+        if job is None:
+            raise FileNotFoundError('Transcript not found')
+
+        transcript = self.transcript_repository.rebuild_transcript(job)
+        logger.info(
+            "transcript.styles.previewed",
+            extra={
+                'user_id': user.id,
+                'job_id': job.id,
+                'styles': styles,
+            },
+        )
+        return {
+            'success': True,
+            'transcript_job_id': job.id,
+            'styles': self.style_service.preview_styles(transcript, styles),
+            'selected_styles': styles,
+            'transcript': self.transcript_repository.serialize_job(job),
+        }
 
     def update_transcript_job(self, user, job_id, segments):
         if not isinstance(segments, list) or not segments:
@@ -91,6 +141,14 @@ class TranscriptService:
         job = self.transcript_repository.update_segments(job_id, segments, user_id=user.id)
         if job is None:
             raise FileNotFoundError('Transcript not found')
+        logger.info(
+            "transcript.job.updated",
+            extra={
+                'user_id': user.id,
+                'job_id': job.id,
+                'segment_count': len(segments),
+            },
+        )
         return self.transcript_repository.serialize_job(job)
 
     def export_transcript(self, user, job_id, styles=None):
@@ -100,11 +158,20 @@ class TranscriptService:
             raise FileNotFoundError('Transcript not found')
 
         transcript = self.transcript_repository.rebuild_transcript(job)
+        style_map = self.style_service.format_for_styles(transcript, styles)
         results = []
 
-        for style in styles:
-            formatted_captions = self.style_service.format(transcript, style)
-            export_data = self.export_service.export_srt(formatted_captions, job.source_filename, style)
+        logger.info(
+            "transcript.export.started",
+            extra={
+                'user_id': user.id,
+                'job_id': job.id,
+                'styles': styles,
+            },
+        )
+
+        for style, captions in style_map.items():
+            export_data = self.export_service.export_srt(captions, job.source_filename, style)
 
             existing_record = self._find_processing_record(user.id, job.source_filename, style, job.language)
             if existing_record is None:
@@ -129,14 +196,24 @@ class TranscriptService:
             results.append({
                 'style': style,
                 'srt_filename': export_data['srt_filename'],
-                'captions': formatted_captions[:10],
-                'total_captions': len(formatted_captions),
+                'captions': captions[:10],
+                'total_captions': len(captions),
             })
 
         job.status = 'exported'
         from models import db
 
         db.session.commit()
+
+        logger.info(
+            "transcript.export.completed",
+            extra={
+                'user_id': user.id,
+                'job_id': job.id,
+                'styles': styles,
+                'exports': len(results),
+            },
+        )
 
         videos_processed = self.processing_repository.get_user_video_count(user.id)
         videos_remaining = 'unlimited' if user.is_premium else max(2 - videos_processed, 0)
@@ -159,3 +236,8 @@ class TranscriptService:
             style=style,
             language=language,
         ).first()
+
+    def cleanup_uploaded_artifacts(self, filename):
+        """Remove source and temporary audio files for an uploaded video."""
+        video_path = os.path.join(self.upload_folder, filename)
+        self.video_processor.cleanup_processing_artifacts(video_path)

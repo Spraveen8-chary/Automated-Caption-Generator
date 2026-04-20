@@ -13,7 +13,19 @@ class StyleService:
     def format_for_styles(self, transcript, styles):
         return {style: self.format(transcript, style) for style in styles}
 
+    def preview_styles(self, transcript, styles):
+        style_map = self.format_for_styles(transcript, styles)
+        previews = []
+
+        for style, captions in style_map.items():
+            previews.append({
+                'style': style,
+                'captions': captions[:5],
+                'total_captions': len(captions),
+            })
+
+        return previews
+
     @property
     def styles(self):
         return self.caption_formatter.styles
-

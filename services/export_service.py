@@ -23,3 +23,16 @@ class ExportService:
             'srt_path': srt_path,
         }
 
+    def export_style_map(self, style_map, source_filename):
+        results = []
+
+        for style, captions in style_map.items():
+            export_data = self.export_srt(captions, source_filename, style)
+            results.append({
+                'style': style,
+                'srt_filename': export_data['srt_filename'],
+                'captions': captions[:10],
+                'total_captions': len(captions),
+            })
+
+        return results

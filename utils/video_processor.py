@@ -11,6 +11,11 @@ class VideoProcessor:
     def __init__(self, upload_folder):
         self.upload_folder = upload_folder
         self.audio_format = 'mp3'
+
+    def build_audio_path(self, video_path):
+        """Build the temporary audio path derived from a video filename."""
+        audio_filename = f"{os.path.splitext(os.path.basename(video_path))[0]}.{self.audio_format}"
+        return os.path.join(self.upload_folder, audio_filename)
     
     def extract_audio(self, video_path):
         """
@@ -29,8 +34,7 @@ class VideoProcessor:
             video = VideoFileClip(video_path)
             
             # Generate audio filename
-            audio_filename = f"{os.path.splitext(os.path.basename(video_path))[0]}.{self.audio_format}"
-            audio_path = os.path.join(self.upload_folder, audio_filename)
+            audio_path = self.build_audio_path(video_path)
             
             # Extract audio
             logger.info(f"Extracting audio to: {audio_path}")
@@ -129,13 +133,22 @@ class VideoProcessor:
                 
         except Exception as e:
             logger.error(f"Error cleaning up file {filepath}: {str(e)}")
-    
+
+    def cleanup_processing_artifacts(self, video_path, cleanup_source=True):
+        """Remove the extracted audio and, when safe, the uploaded source video."""
+        audio_path = self.build_audio_path(video_path)
+        self.cleanup_file(audio_path)
+
+        if cleanup_source:
+            self.cleanup_file(video_path)
+
     def cleanup_all_temp_files(self):
-        """Clean up all temporary files in upload folder"""
+        """Clean up video and audio temp files while leaving exported captions in place."""
         try:
+            removable_suffixes = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav'}
             for filename in os.listdir(self.upload_folder):
                 filepath = os.path.join(self.upload_folder, filename)
-                if os.path.isfile(filepath):
+                if os.path.isfile(filepath) and os.path.splitext(filename)[1].lower() in removable_suffixes:
                     self.cleanup_file(filepath)
                     
             logger.info("All temporary files cleaned up")

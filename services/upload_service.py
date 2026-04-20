@@ -1,7 +1,10 @@
 import os
+import logging
 import uuid
 
 from werkzeug.utils import secure_filename
+
+logger = logging.getLogger(__name__)
 
 
 class UploadService:
@@ -30,6 +33,14 @@ class UploadService:
         filename = f"{unique_id}_{original_filename}"
         filepath = os.path.join(self.upload_folder, filename)
         file_storage.save(filepath)
+        logger.info(
+            "upload.saved",
+            extra={
+                'file_id': unique_id,
+                'uploaded_filename': filename,
+                'original_filename': original_filename,
+            },
+        )
 
         return {
             'success': True,
@@ -39,4 +50,3 @@ class UploadService:
             'filepath': filepath,
             'message': 'Video uploaded successfully',
         }
-

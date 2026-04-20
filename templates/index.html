@@ -234,7 +234,24 @@
                     </div>
                     <div class="card__footer transcript-actions">
                         <button class="btn btn--outline" id="saveTranscriptBtn">Save Transcript</button>
+                        <button class="btn btn--outline" id="previewStylesBtn">Preview Styles</button>
                         <button class="btn btn--primary" id="exportTranscriptBtn">Export Selected Styles</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Style Preview -->
+            <section class="style-preview-section" id="stylePreviewSection" style="display: none;">
+                <div class="card fade-in">
+                    <div class="card__header">
+                        <div>
+                            <h2>Styled Caption Preview</h2>
+                            <p class="subtitle">See how the saved transcript transforms in each selected style.</p>
+                        </div>
+                        <div class="status status--info">Style Preview</div>
+                    </div>
+                    <div class="card__body">
+                        <div class="style-preview-grid" id="stylePreviewGrid"></div>
                     </div>
                 </div>
             </section>

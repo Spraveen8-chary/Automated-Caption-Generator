@@ -1,4 +1,5 @@
 import os
+import logging
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, flash
 from flask_login import LoginManager, login_required, current_user
 from werkzeug.utils import secure_filename
@@ -8,12 +9,15 @@ from auth import auth as auth_blueprint
 from repositories.processing_repository import ProcessingRepository
 from services.transcript_service import TranscriptService
 from services.upload_service import UploadService
+from utils.logging_utils import configure_logging
 from datetime import datetime
 
 
 app = Flask(__name__)
 app.config.from_object(Config)
 Config.init_app(app)
+configure_logging(app)
+logger = logging.getLogger(__name__)
 
 # Initialize database
 db.init_app(app)
@@ -42,7 +46,7 @@ transcript_service = TranscriptService(
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 # Create database tables
@@ -84,6 +88,14 @@ def upload_video():
             }), 403
         file = request.files.get('video')
         upload_data = upload_service.save_uploaded_file(file)
+        logger.info(
+            "upload.completed",
+            extra={
+                'user_id': current_user.id,
+                'file_id': upload_data['file_id'],
+                'uploaded_filename': upload_data['filename'],
+            },
+        )
         return jsonify({
             'success': True,
             'file_id': upload_data['file_id'],
@@ -94,13 +106,14 @@ def upload_video():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
-        app.logger.error(f"Upload error: {str(e)}")
+        logger.exception("upload.failed", extra={'user_id': current_user.id})
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
 @app.route('/process', methods=['POST'])
 @login_required
 def process_video():
     """Process video into a structured transcript."""
+    filename = None
     try:
         data = request.get_json(silent=True) or {}
         filename = data.get('filename')
@@ -114,6 +127,15 @@ def process_video():
         if not styles:
             styles = ['meme']
 
+        logger.info(
+            "process.requested",
+            extra={
+                'user_id': current_user.id,
+                'source_filename': filename,
+                'language': language,
+                'styles': styles,
+            },
+        )
         result = transcript_service.process_video(
             user=current_user,
             filename=filename,
@@ -129,7 +151,7 @@ def process_video():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
-        app.logger.error(f"Processing error: {str(e)}")
+        logger.exception("process.failed", extra={'user_id': current_user.id, 'source_filename': filename})
         return jsonify({'error': f'Processing failed: {str(e)}'}), 500
 
 
@@ -139,11 +161,12 @@ def get_transcript(job_id):
     """Fetch a saved transcript job and its segments."""
     try:
         transcript = transcript_service.get_transcript_job(current_user, job_id)
+        logger.info("transcript.loaded", extra={'user_id': current_user.id, 'job_id': job_id})
         return jsonify({'success': True, 'transcript': transcript}), 200
     except FileNotFoundError as e:
         return jsonify({'error': str(e)}), 404
     except Exception as e:
-        app.logger.error(f"Transcript fetch error: {str(e)}")
+        logger.exception("transcript.fetch.failed", extra={'user_id': current_user.id, 'job_id': job_id})
         return jsonify({'error': f'Failed to load transcript: {str(e)}'}), 500
 
 
@@ -161,7 +184,7 @@ def update_transcript(job_id):
     except FileNotFoundError as e:
         return jsonify({'error': str(e)}), 404
     except Exception as e:
-        app.logger.error(f"Transcript update error: {str(e)}")
+        logger.exception("transcript.update.failed", extra={'user_id': current_user.id, 'job_id': job_id})
         return jsonify({'error': f'Failed to update transcript: {str(e)}'}), 500
 
 
@@ -176,14 +199,34 @@ def export_transcript(job_id):
             transcript_service.update_transcript_job(current_user, job_id, segments)
         styles = data.get('styles') or ['meme']
         result = transcript_service.export_transcript(current_user, job_id, styles=styles)
+        logger.info(
+            "transcript.exported",
+            extra={'user_id': current_user.id, 'job_id': job_id, 'styles': styles},
+        )
         return jsonify(result), 200
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except FileNotFoundError as e:
         return jsonify({'error': str(e)}), 404
     except Exception as e:
-        app.logger.error(f"Transcript export error: {str(e)}")
+        logger.exception("transcript.export.failed", extra={'user_id': current_user.id, 'job_id': job_id})
         return jsonify({'error': f'Failed to export transcript: {str(e)}'}), 500
+
+
+@app.route('/transcripts/<int:job_id>/styles', methods=['POST'])
+@login_required
+def preview_styles(job_id):
+    """Preview styled caption output for the saved transcript."""
+    try:
+        data = request.get_json(silent=True) or {}
+        styles = data.get('styles') or ['meme']
+        result = transcript_service.preview_styles(current_user, job_id, styles=styles)
+        return jsonify(result), 200
+    except FileNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.exception("transcript.preview.failed", extra={'user_id': current_user.id, 'job_id': job_id})
+        return jsonify({'error': f'Failed to preview styles: {str(e)}'}), 500
 
 @app.route('/admin')
 @login_required
@@ -229,19 +272,20 @@ def download_file(filename):
     """Download generated SRT file"""
     try:
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        
+
         if not os.path.exists(filepath):
             return jsonify({'error': 'File not found'}), 404
-        
+
+        logger.info("download.requested", extra={'user_id': current_user.id, 'download_filename': filename})
         return send_file(
             filepath,
             as_attachment=True,
             download_name=filename,
             mimetype='application/x-subrip'
         )
-        
+
     except Exception as e:
-        app.logger.error(f"Download error: {str(e)}")
+        logger.exception("download.failed", extra={'user_id': current_user.id, 'download_filename': filename})
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 
@@ -250,16 +294,15 @@ def download_file(filename):
 def cleanup(filename):
     """Cleanup uploaded video file"""
     try:
-        video_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
-        transcript_service.video_processor.cleanup_file(video_path)
-        
+        transcript_service.cleanup_uploaded_artifacts(secure_filename(filename))
+
         return jsonify({
             'success': True,
             'message': 'File cleaned up successfully'
         }), 200
-        
+
     except Exception as e:
-        app.logger.error(f"Cleanup error: {str(e)}")
+        logger.exception("cleanup.failed", extra={'user_id': current_user.id, 'cleanup_filename': filename})
         return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
 
 
@@ -282,7 +325,7 @@ def file_too_large(e):
 @app.errorhandler(500)
 def internal_error(e):
     """Handle internal server error"""
-    app.logger.error(f"Internal error: {str(e)}")
+    logger.exception("internal.error")
     return jsonify({'error': 'Internal server error'}), 500
 
 
