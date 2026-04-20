@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Caption History - Caption Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="navbar-container">
+            <div class="navbar-brand">
+                <h1>🎬 Caption Generator</h1>
+            </div>
+            <div class="navbar-menu">
+                <div class="user-info">
+                    <span class="user-name">👤 {{ user.username }}</span>
+                    <a href="{{ url_for('index') }}" class="btn btn--sm btn--outline">New Video</a>
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--secondary">Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="header history-header fade-in">
+            <h1>Your Video History</h1>
+            <p class="subtitle">All videos you processed using Caption Generator</p>
+        </header>
+        {% if videos %}
+            <table class="history-table fade-in">
+                <thead>
+                    <tr>
+                        <th>S.no</th>
+                        <th>Video</th>
+                        <th>Style</th>
+                        <th>Language</th>
+                        <th>Date</th>
+                        <th>Download SRT</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for video in videos %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ video.original_filename }}</td>
+                        <td>{{ video.style.title() }}</td>
+                        <td>{{ video.language.upper() }}</td>
+                        <td>{{ video.processed_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                        <td>
+                            {% if video.srt_filename %}
+                                <a href="{{ url_for('download_file', filename=video.srt_filename) }}" class="btn btn--sm btn--primary" download>
+                                    Download
+                                </a>
+                            {% else %}
+                                <span class="status status--error">Not available</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="card fade-in" style="margin-top:32px">
+                <div class="card__body">
+                    <p>You haven’t processed any videos yet.</p>
+                    <a href="{{ url_for('index') }}" class="btn btn--primary">Generate a Caption</a>
+                </div>
+            </div>
+        {% endif %}
+        <footer class="footer">
+            <p>Powered by Google Gemini AI | Made with ❤️ for Content Creators</p>
+        </footer>
+    </div>
+</body>
+</html>

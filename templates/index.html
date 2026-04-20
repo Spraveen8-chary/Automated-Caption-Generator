@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Caption Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="navbar-container">
+            <div class="navbar-brand">
+                <h1>🎬 Caption Generator</h1>
+            </div>
+            <div class="navbar-menu">
+                <div class="user-info">
+                    <span class="user-name">👤 {{ user.username }}</span>
+                    <a href="{{ url_for('history') }}" class="btn btn--sm btn--outline">History</a>
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--outline currentColor">Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- Usage Limit Banner -->
+        <div class="usage-banner {% if not can_process %}usage-banner--limit{% endif %}">
+            <div class="usage-info">
+                <div class="usage-icon">
+                    {% if can_process %}
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                        </svg>
+                    {% else %}
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="15" y1="9" x2="9" y2="15"></line>
+                            <line x1="9" y1="9" x2="15" y2="15"></line>
+                        </svg>
+                    {% endif %}
+                </div>
+                <div class="usage-text">
+                    <h3>
+                        {% if user.is_premium %}
+                            Premium Account
+                        {% else %}
+                            Free Account
+                        {% endif %}
+                    </h3>
+                    <p>
+                        {% if user.is_premium %}
+                            Unlimited video processing
+                        {% else %}
+                            {{ videos_processed }} of 2 videos used
+                            {% if not can_process %}
+                                - <strong>Limit reached</strong>
+                            {% endif %}
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+            {% if not user.is_premium %}
+                <div class="usage-progress">
+                    <div class="progress-bar-mini">
+                        <div class="progress-bar-mini__fill" style="width: {{ (videos_processed / 2 * 100)|int }}%"></div>
+                    </div>
+                    {% if not can_process %}
+                        <button class="btn btn--primary btn--sm" onclick="showUpgradeModal()">
+                            ⭐ Upgrade to Premium
+                        </button>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Header -->
+        <header class="header">
+            <h1 class="fade-in">🎬 Automated Caption Generator</h1>
+            <p class="subtitle fade-in">AI-powered tool to generate styled captions for your videos</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Upload Section -->
+            <section class="upload-section slide-up" id="uploadSection">
+                <div class="upload-area" id="uploadArea">
+                    <input type="file" id="videoInput" accept="video/*" hidden {% if not can_process %}disabled{% endif %}>
+                    <div class="upload-content">
+                        <svg class="upload-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <h2>Drop video here or click to upload</h2>
+                        <p class="upload-hint">Supports MP4, MOV, AVI, MKV, WebM (Max 100MB)</p>
+                        {% if can_process %}
+                            <button class="btn btn--primary" id="selectFileBtn">Select Video File</button>
+                        {% else %}
+                            <button class="btn btn--primary" disabled>Limit Reached</button>
+                            <p class="error-text">Upgrade to premium to process more videos</p>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- File Info -->
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <div class="file-details">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <div class="file-text">
+                            <p class="file-name" id="fileName">video.mp4</p>
+                            <p class="file-size" id="fileSize">0 MB</p>
+                        </div>
+                    </div>
+                    <button class="btn btn--outline btn--sm" id="changeFileBtn">Change File</button>
+                </div>
+            </section>
+
+            <!-- Style Selection -->
+            <section class="style-section" id="styleSection" style="display: none;">
+                <h2>Choose Caption Style</h2>
+                <div class="style-grid">
+                    {% for key, style in styles.items() %}
+                    <div class="style-card" data-style="{{ key }}">
+                        <div class="style-card__header">
+                            <h3>{{ style.name }}</h3>
+                            <div class="style-radio">
+                                 <input type="checkbox" name="captionStyle" id="style-{{ key }}" value="{{ key }}" {% if key == 'meme' %}checked{% endif %}>
+                                <label for="style-{{ key }}"></label>
+                            </div>
+                        </div>
+                        <p class="style-card__description">{{ style.description }}</p>
+                        <div class="style-card__example">
+                            {% if key == 'meme' %}
+                                <span class="example-text">WHEN THE CODE WORKS 😂</span>
+                            {% elif key == 'formal' %}
+                                <span class="example-text">The application compiled successfully.</span>
+                            {% elif key == 'casual' %}
+                                <span class="example-text">when the code finally works</span>
+                            {% elif key == 'aesthetic' %}
+                                <span class="example-text">✨ when the code ~ works ~ ✨</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <!-- Language Selection -->
+            <section class="language-section" id="languageSection" style="display: none;">
+                <label for="languageSelect" class="form-label">🌍 Select Output Language</label>
+                <p class="language-hint">Audio will be transcribed/translated to this language</p>
+                <select id="languageSelect" class="form-control">
+                    <optgroup label="🇮🇳 Indian Languages">
+                        <option value="hi">Hindi (हिंदी)</option>
+                        <option value="bn">Bengali (বাংলা)</option>
+                        <option value="te">Telugu (తెలుగు)</option>
+                        <option value="mr">Marathi (मराठी)</option>
+                        <option value="ta">Tamil (தமிழ்)</option>
+                        <option value="ur">Urdu (اردو)</option>
+                        <option value="gu">Gujarati (ગુજરાતી)</option>
+                        <option value="kn">Kannada (ಕನ್ನಡ)</option>
+                        <option value="ml">Malayalam (മലയാളം)</option>
+                        <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
+                        <option value="or">Odia (ଓଡ଼ିଆ)</option>
+                        <option value="as">Assamese (অসমীয়া)</option>
+                        <option value="sa">Sanskrit (संस्कृतम्)</option>
+                    </optgroup>
+                    <optgroup label="🌎 International Languages">
+                        <option value="en" selected>English</option>
+                        <option value="es">Spanish (Español)</option>
+                        <option value="fr">French (Français)</option>
+                        <option value="de">German (Deutsch)</option>
+                        <option value="it">Italian (Italiano)</option>
+                        <option value="pt">Portuguese (Português)</option>
+                        <option value="ar">Arabic (العربية)</option>
+                        <option value="ru">Russian (Русский)</option>
+                        <option value="ja">Japanese (日本語)</option>
+                        <option value="ko">Korean (한국어)</option>
+                        <option value="zh">Chinese (中文)</option>
+                        <option value="th">Thai (ไทย)</option>
+                        <option value="vi">Vietnamese (Tiếng Việt)</option>
+                        <option value="id">Indonesian (Bahasa Indonesia)</option>
+                        <option value="tr">Turkish (Türkçe)</option>
+                    </optgroup>
+                </select>
+            </section>
+
+            <!-- Action Buttons -->
+            <section class="action-section" id="actionSection" style="display: none;">
+                <button class="btn btn--primary btn--lg btn--full-width pulse" id="generateBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                    </svg>
+                    Generate Transcript
+                </button>
+            </section>
+
+            <!-- Progress Section -->
+            <section class="progress-section" id="progressSection" style="display: none;">
+                <div class="progress-card">
+                    <div class="progress-icon">
+                        <svg class="spinner-large" width="48" height="48" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" fill="none" opacity="0.25"/>
+                            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" fill="none"/>
+                        </svg>
+                    </div>
+                    <h3 id="progressTitle">Processing...</h3>
+                    <div class="progress-bar">
+                        <div class="progress-bar__fill" id="progressBar"></div>
+                    </div>
+                    <p class="progress-text" id="progressText">Uploading video...</p>
+                </div>
+            </section>
+
+            <!-- Transcript Editor -->
+            <section class="transcript-section" id="transcriptSection" style="display: none;">
+                <div class="card fade-in">
+                    <div class="card__header">
+                        <div>
+                            <h2>Transcript Editor</h2>
+                            <p class="subtitle" id="transcriptMeta">Edit the raw transcript before exporting styles.</p>
+                        </div>
+                        <div class="status status--info" id="transcriptStatus">Draft</div>
+                    </div>
+                    <div class="card__body">
+                        <div class="transcript-editor" id="transcriptEditor"></div>
+                    </div>
+                    <div class="card__footer transcript-actions">
+                        <button class="btn btn--outline" id="saveTranscriptBtn">Save Transcript</button>
+                        <button class="btn btn--primary" id="exportTranscriptBtn">Export Selected Styles</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <div class="card fade-in">
+                    <div class="card__header">
+                        <h2>✅ Captions Exported Successfully!</h2>
+                        <div class="status status--success">Complete</div>
+                    </div>
+                    <div class="card__body">
+                        <div class="results-info">
+                            <div class="info-item">
+                                <span class="info-label">Total Captions:</span>
+                                <span class="info-value" id="totalCaptions">0</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Transcript:</span>
+                                <span class="info-value" id="selectedStyle">Ready</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Language:</span>
+                                <span class="info-value" id="selectedLanguage">English</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Caption Preview -->
+                        <div class="caption-preview" id="captionPreview">
+                            <h3>Export Preview (First 5 captions)</h3>
+                            <div class="preview-list" id="previewList"></div>
+                        </div>
+
+                        <!-- Usage Update -->
+                        <div class="usage-update" id="usageUpdate" style="display: none;">
+                            <p>Videos processed: <strong id="videosProcessedCount">0</strong> / 2</p>
+                            <p id="remainingText">You have <strong id="remainingCount">0</strong> videos remaining</p>
+                        </div>
+                    </div>
+                    <div class="card__footer">
+                        <button class="btn btn--primary" id="downloadBtn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Download SRT File
+                        </button>
+                        <button class="btn btn--outline" id="editTranscriptBtn">Edit Transcript</button>
+                        <button class="btn btn--outline" id="newVideoBtn">Generate Another</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Error Section -->
+            <section class="error-section" id="errorSection" style="display: none;">
+                <div class="card card--error shake">
+                    <div class="card__body">
+                        <svg class="error-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="15" y1="9" x2="9" y2="15"></line>
+                            <line x1="9" y1="9" x2="15" y2="15"></line>
+                        </svg>
+                        <h2>Oops! Something went wrong</h2>
+                        <p class="error-message" id="errorMessage">An error occurred during processing.</p>
+                        <button class="btn btn--primary" id="retryBtn">Try Again</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Powered by Google Gemini AI | Made with ❤️ for Content Creators</p>
+        </footer>
+    </div>
+
+    <!-- Premium Upgrade Modal -->
+    <div class="modal" id="upgradeModal" style="display: none;">
+        <div class="modal-overlay" onclick="closeUpgradeModal()"></div>
+        <div class="modal-content slide-up">
+            <button class="modal-close" onclick="closeUpgradeModal()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+            <div class="modal-header">
+                <h2>⭐ Upgrade to Premium</h2>
+                <p>Unlock unlimited caption generation</p>
+            </div>
+            <div class="modal-body">
+                <div class="pricing-card">
+                    <div class="pricing-header">
+                        <h3>Premium Plan</h3>
+                        <div class="pricing-price">
+                            <span class="price">₹499</span>
+                            <span class="period">/month</span>
+                        </div>
+                    </div>
+                    <ul class="pricing-features">
+                        <li>✅ Unlimited video processing</li>
+                        <li>✅ All 40+ languages</li>
+                        <li>✅ All caption styles</li>
+                        <li>✅ Priority processing</li>
+                        <li>✅ No watermarks</li>
+                        <li>✅ Download history</li>
+                    </ul>
+                    <button class="btn btn--primary btn--lg btn--full-width">
+                        Upgrade Now
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Modal functions
+        function showUpgradeModal() {
+            document.getElementById('upgradeModal').style.display = 'flex';
+        }
+        
+        function closeUpgradeModal() {
+            document.getElementById('upgradeModal').style.display = 'none';
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
