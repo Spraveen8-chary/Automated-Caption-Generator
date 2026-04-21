@@ -1,187 +1,141 @@
-# Implementation Plan
+# Implementation - v3 Phased Plan
 
-## Objective
-Transform the existing Automated Caption Generator into a phased, modular system using software engineering principles such as iterative delivery, clear interfaces, refactoring with safety, and measurable acceptance criteria.[file:19][file:22][file:28][file:32]
-
-## Phase 0 — Existing system study
+## Phase 0 - Current-state analysis
 ### Goal
-Understand the old system before changing it.
+Identify exactly where the current project conflicts with the new required features.
 
-### Software engineering principle
-Requirements analysis before implementation; do not modify a system that has not been fully understood.
-
-### Activities
-- Review current routes in the Flask app and map the end-to-end flow from upload to download.[file:19]
-- Review current frontend pages and identify what can be preserved.[file:29][file:31][file:32]
-- Review the transcription and caption formatting pipeline.[file:25][file:28]
-- Review models, config, and environment setup.[file:21][file:23]
-
-### Outputs
-- Existing system map.
-- Reuse vs refactor list.
-- Dependency inventory.
-- Risk list.
+### Findings to document
+- Current `/process` route assumes one `language` and multiple `styles`, which is the reverse of the new requirement.[file:19]
+- Current UI exposes one language selector and multi-style checkboxes.[file:32]
+- Current free-user limit is implemented as `2` in model and route logic.[file:19][file:23]
+- Current transcription service is Gemini-specific.[file:28]
+- Current visible workflow is mainly SRT generation, not guaranteed final captioned-video delivery.[file:19][file:25][file:26]
 
 ### Acceptance criteria
-- Every major file has a documented purpose.
-- Existing workflow is represented in one clear flow diagram or text flow.
-- Critical coupling points are identified.
+- All incompatibilities are listed.
+- Migration notes are ready.
 
-## Phase 1 — Requirement baseline and system design
+## Phase 1 - Requirement freeze
 ### Goal
-Define the target V1 product clearly.
+Freeze the exact revised product behavior.
 
-### Software engineering principle
-A stable requirement baseline reduces churn and prevents uncontrolled scope expansion.
+### Frozen rules
+- One run accepts one chosen style and multiple target languages.
+- A transcript source should be produced once, then transformed/exported per target language when possible.
+- Free-user usage limit must come from env.
+- Transcription provider must come from env.
+- Captioned video output is mandatory.
 
-### Activities
-- Convert product ideas into functional requirements.
-- Define non-functional requirements: performance, maintainability, usability, and reliability.
-- Define major actors: normal user, premium user, admin.[file:22][file:29][file:32]
-- Define updated use cases: upload, transcribe, edit, style, export, preview, review history.
-- Draft target architecture and boundaries.
-
-### Outputs
-- Requirement specification.
-- Use-case list.
-- API boundary definitions.
-- Updated architecture document.
+### Engineering principle
+Clear requirement freeze prevents UI/backend/data mismatches.
 
 ### Acceptance criteria
-- V1 scope is frozen.
-- Team can explain what is in scope and what is postponed.
-- Each feature is traceable to at least one implementation area.
+- A single frozen scope statement exists in the repo.
+- Env-driven limit/provider behavior is explicitly documented.
+- The one-style, multi-language rule is explicit.
+- Burned-caption video is recorded as a required output.
 
-## Phase 2 — Core backend restructuring
+## Phase 2 - Config-first architecture
 ### Goal
-Refactor the backend into clearer modules without breaking the current application foundation.
+Replace hardcoded business and provider assumptions with configuration.
 
-### Software engineering principle
-Refactoring should preserve behavior while improving structure, cohesion, and extensibility.
-
-### Activities
-- Introduce a provider abstraction for transcription so the current Gemini-bound implementation is no longer tightly coupled.[file:28]
-- Move orchestration logic out of route handlers where possible.[file:19]
-- Define service responsibilities for upload, transcription, formatting, export, and preview.[file:19][file:25][file:26]
-- Add transcript segment storage design.
-- Preserve existing auth and role model unless a requirement changes.[file:19][file:20][file:23]
-
-### Outputs
-- Cleaner service layer.
-- Updated route-to-service interaction map.
-- Database update plan.
+### Work
+- Add `TRANSCRIPTION_PROVIDER` strategy.
+- Add `FREE_USER_VIDEO_LIMIT` strategy.
+- Add optional provider-specific config validation.
+- Preserve a free default path using Whisper.
 
 ### Acceptance criteria
-- Routes delegate to services rather than containing most business logic.
-- Transcription provider can be replaced with minimal route changes.
-- SRT generation remains functional.
+- System can boot with Whisper only.
+- System can boot with AssemblyAI when key is present.
+- Limit is no longer hardcoded.
 
-## Phase 3 — Transcript-first workflow
+## Phase 3 - Provider abstraction
 ### Goal
-Shift the product from one-shot caption generation to transcript-first processing and editing.
+Support multiple STT providers through a single service contract.
 
-### Software engineering principle
-User-centered workflow refinement should be built around explicit intermediate states, not hidden transformations.
+### Work
+- Define provider interface.
+- Implement Whisper/faster-whisper provider.
+- Implement AssemblyAI provider.
+- Keep provider selection centralized.
 
-### Activities
-- Store transcript segments as structured data.
-- Build backend endpoints for fetching and updating segments.
-- Update UI to show editable transcript blocks instead of only static preview output.[file:32]
-- Separate raw transcript from styled caption output.
-
-### Outputs
-- Editable transcript pipeline.
-- Segment persistence.
-- Update and save endpoints.
+### Engineering principle
+Open/closed design: add providers without rewriting routes.
 
 ### Acceptance criteria
-- User can view transcript segments with timestamps.
-- User can edit captions before export.
-- Changes persist correctly.
+- Route/service orchestration is provider-agnostic.
+- Failures are provider-specific but normalized.
 
-## Phase 4 — Styling and export flow
+## Phase 4 - Multi-language single-style workflow
 ### Goal
-Introduce a controlled styling and export layer on top of edited transcript data.
+Reshape the product workflow to support one style and multiple target languages.
 
-### Software engineering principle
-Transformation stages should be deterministic, isolated, and testable.
+### Work
+- Change request schema from `language` to `languages[]`.[file:19]
+- Keep style singular, not a list, if product rule is one style per run.[file:32]
+- Create one job, many language outputs.
+- Avoid duplicate transcription work when possible.
 
-### Activities
-- Apply style generation after transcript editing, not before.
-- Keep caption formatting isolated from LLM prompting logic.[file:25]
-- Generate SRT from approved segment data.
-- Support multiple style outputs if still required by product scope.[file:22][file:32]
-
-### Outputs
-- Style application flow.
-- Export-ready caption data.
-- SRT download compatibility.
+### Engineering principle
+Avoid repeated expensive work by separating source transcript generation from per-language output generation.
 
 ### Acceptance criteria
-- Styled captions are generated from current saved transcript state.
-- SRT output aligns with segment timestamps.
-- Previous download flow remains understandable to the user.
+- A single upload can produce multiple language outputs.
+- All outputs remain associated with one root job.
 
-## Phase 5 — Preview rendering and media integration
+## Phase 5 - Usage-limit redesign
 ### Goal
-Support burned-caption preview video generation.
+Make SaaS limits configurable and maintainable.
 
-### Software engineering principle
-Heavy processing features should be isolated behind clear service boundaries and fail safely.
-
-### Activities
-- Extend video processing logic to render preview MP4 with captions.[file:26]
-- Keep preview generation asynchronous or modular if processing time is significant.
-- Preserve original uploaded asset and generated artifacts cleanly.
-
-### Outputs
-- Preview generation service.
-- Asset lifecycle handling.
-- Preview download flow.
+### Work
+- Add `FREE_USER_VIDEO_LIMIT` env support.
+- Replace hardcoded `2` checks in model and route layers.[file:19][file:23]
+- Reflect configured limit in UI banner and API responses.[file:32]
 
 ### Acceptance criteria
-- User can generate a preview video with overlaid captions.
-- Failure in preview rendering does not corrupt transcript or SRT output.
+- Changing env value changes allowed free usage without code edits.
 
-## Phase 6 — History, admin, and analytics alignment
+## Phase 6 - Captioned video artifact pipeline
 ### Goal
-Ensure auxiliary modules continue working after the refactor.
+Make captioned video output a first-class deliverable.
 
-### Software engineering principle
-A system change is incomplete if dependent modules are ignored.
+### Work
+- Generate SRT per language.[file:25]
+- Burn subtitle track into video per requested output language.[file:26]
+- Save and expose downloadable captioned video file.
+- Track relation between original video, SRT, and output video.
 
-### Activities
-- Align history page with new processing states.[file:31]
-- Align admin dashboard metrics with transcript/export/preview states.[file:29]
-- Update data shown to admin for new job lifecycle.
-
-### Outputs
-- Compatible history and admin modules.
-- Refined state model for reporting.
+### Engineering principle
+Artifacts should be explicit and recoverable.
 
 ### Acceptance criteria
-- Admin views remain usable.
-- History remains accurate after the new workflow is introduced.
+- User can download a subtitle-burned video file.
+- History/admin can reference generated video outputs.
 
-## Phase 7 — Testing, hardening, and delivery
+## Phase 7 - UI and tracking alignment
 ### Goal
-Prepare the project for steady execution and team use.
+Synchronize frontend and admin/history with the new data model.
 
-### Software engineering principle
-Verification and validation are mandatory phases, not optional cleanup.
-
-### Activities
-- Add service-level tests for transcription parsing, formatting, export, and preview paths.
-- Add structured error handling and logs.[file:19][file:28]
-- Review cleanup behavior and storage usage.[file:19][file:26]
-- Finalize documentation and migration notes.[file:22]
-
-### Outputs
-- Stable implementation baseline.
-- Delivery documentation.
-- Known issues log.
+### Work
+- Convert language selector to multi-select or checkbox group.[file:32]
+- Convert style UI to single-select if required by product rule.[file:32]
+- Add output cards for each language result.
+- Add SRT + video download actions.
+- Update history/admin summaries.
 
 ### Acceptance criteria
-- Core paths are testable.
-- Major failures are diagnosable.
-- Team can continue implementation from documented state.
+- UI behavior matches backend workflow.
+- Users can clearly see all outputs.
+
+## Phase 8 - Hardening
+### Goal
+Stabilize the revised system.
+
+### Work
+- Add tests for multi-language jobs, provider switching, free-limit env, and burned-video output.
+- Add logs for provider and render failures.
+- Update docs and migration notes.
+
+### Acceptance criteria
+- Core v3 features are verifiable and documented.

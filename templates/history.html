@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
 </head>
 <body>
-    <!-- Top Navigation Bar -->
     <nav class="navbar">
         <div class="navbar-container">
             <div class="navbar-brand">
@@ -27,33 +26,45 @@
     <div class="container">
         <header class="header history-header fade-in">
             <h1>Your Video History</h1>
-            <p class="subtitle">All videos you processed using Caption Generator</p>
+            <p class="subtitle">One job can now produce multiple language outputs.</p>
         </header>
-        {% if videos %}
+
+        {% if jobs %}
             <table class="history-table fade-in">
                 <thead>
                     <tr>
                         <th>S.no</th>
                         <th>Video</th>
                         <th>Style</th>
-                        <th>Language</th>
+                        <th>Languages</th>
                         <th>Date</th>
-                        <th>Download SRT</th>
+                        <th>Outputs</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for video in videos %}
+                    {% for job in jobs %}
                     <tr>
                         <td>{{ loop.index }}</td>
-                        <td>{{ video.original_filename }}</td>
-                        <td>{{ video.style.title() }}</td>
-                        <td>{{ video.language.upper() }}</td>
-                        <td>{{ video.processed_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                        <td>{{ job.original_filename }}</td>
+                        <td>{{ job.selected_style.title() }}</td>
+                        <td>{{ job.target_languages|join(', ')|upper }}</td>
+                        <td>{{ job.processed_at.strftime("%Y-%m-%d %H:%M") }}</td>
                         <td>
-                            {% if video.srt_filename %}
-                                <a href="{{ url_for('download_file', filename=video.srt_filename) }}" class="btn btn--sm btn--primary" download>
-                                    Download
-                                </a>
+                            {% if job.outputs %}
+                                <div class="history-output-list">
+                                    {% for output in job.outputs %}
+                                        <div class="history-output-item">
+                                            <strong>{{ output.language_code.upper() }}</strong>
+                                            {% if output.srt_filename %}
+                                                <a href="{{ url_for('download_file', filename=output.srt_filename) }}" class="btn btn--sm btn--primary" download>
+                                                    Download SRT
+                                                </a>
+                                            {% else %}
+                                                <span class="status status--error">Pending</span>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                </div>
                             {% else %}
                                 <span class="status status--error">Not available</span>
                             {% endif %}
@@ -70,8 +81,9 @@
                 </div>
             </div>
         {% endif %}
+
         <footer class="footer">
-            <p>Powered by Google Gemini AI | Made with ❤️ for Content Creators</p>
+            <p>Powered by configurable transcription providers | Made with ❤️ for Content Creators</p>
         </footer>
     </div>
 </body>

@@ -1,7 +1,9 @@
+import json
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from config import Config
 
 db = SQLAlchemy()
 
@@ -38,7 +40,7 @@ class User(UserMixin, db.Model):
         """Check if user can process more videos"""
         if self.is_premium:
             return True
-        return self.get_video_count() < 2
+        return self.get_video_count() < Config.FREE_USER_VIDEO_LIMIT
     
     def __repr__(self):
         return f'<User {self.username}>'
@@ -88,9 +90,66 @@ class TranscriptJob(db.Model):
         cascade='all, delete-orphan',
         order_by='TranscriptSegment.segment_index',
     )
+    outputs = db.relationship(
+        'TranscriptOutput',
+        backref='job',
+        lazy=True,
+        cascade='all, delete-orphan',
+        order_by='TranscriptOutput.output_index',
+    )
 
     def __repr__(self):
         return f'<TranscriptJob {self.source_filename}>'
+
+    def _payload(self):
+        if not self.transcript_payload:
+            return {}
+        try:
+            return json.loads(self.transcript_payload)
+        except json.JSONDecodeError:
+            return {}
+
+    @property
+    def selected_style(self):
+        return self._payload().get('selected_style', 'meme')
+
+    @property
+    def target_languages(self):
+        payload = self._payload()
+        languages = payload.get('languages')
+        if isinstance(languages, list) and languages:
+            return languages
+        if self.language:
+            return [self.language]
+        return []
+
+    @property
+    def primary_language(self):
+        payload = self._payload()
+        return payload.get('primary_language', self.language)
+
+
+class TranscriptOutput(db.Model):
+    """Per-language transcript and export artifact for a job."""
+
+    __tablename__ = 'transcript_outputs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    transcript_job_id = db.Column(db.Integer, db.ForeignKey('transcript_jobs.id'), nullable=False, index=True)
+    output_index = db.Column(db.Integer, nullable=False, default=0)
+    language_code = db.Column(db.String(10), nullable=False)
+    transcript_text = db.Column(db.Text)
+    transcript_payload = db.Column(db.Text)
+    duration = db.Column(db.Float)
+    srt_filename = db.Column(db.String(200))
+    burned_video_filename = db.Column(db.String(200))
+    status = db.Column(db.String(20), default='completed')
+    is_primary = db.Column(db.Boolean, default=False)
+    processed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<TranscriptOutput {self.transcript_job_id}:{self.language_code}>'
 
 
 class TranscriptSegment(db.Model):

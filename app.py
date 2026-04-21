@@ -7,8 +7,10 @@ from config import Config
 from models import db, User, VideoProcessing
 from auth import auth as auth_blueprint
 from repositories.processing_repository import ProcessingRepository
+from repositories.transcript_repository import TranscriptRepository
 from services.transcript_service import TranscriptService
 from services.upload_service import UploadService
+from services.transcription_provider import build_transcription_provider
 from utils.logging_utils import configure_logging
 from datetime import datetime
 
@@ -16,6 +18,7 @@ from datetime import datetime
 app = Flask(__name__)
 app.config.from_object(Config)
 Config.init_app(app)
+Config.validate_app_config()
 configure_logging(app)
 logger = logging.getLogger(__name__)
 
@@ -38,9 +41,18 @@ upload_service = UploadService(
     app.config['MAX_CONTENT_LENGTH'],
 )
 processing_repository = ProcessingRepository()
+transcript_repository = TranscriptRepository()
 transcript_service = TranscriptService(
     app.config['UPLOAD_FOLDER'],
     app.config['GOOGLE_API_KEY'],
+    transcription_provider=build_transcription_provider(
+        provider_name=app.config['TRANSCRIPTION_PROVIDER'],
+        google_api_key=app.config['GOOGLE_API_KEY'],
+        whisper_model=app.config['WHISPER_MODEL'],
+        assemblyai_api_key=app.config['ASSEMBLYAI_API_KEY'],
+    ),
+    transcript_repository=transcript_repository,
+    processing_repository=processing_repository,
 )
 
 
@@ -69,9 +81,13 @@ def index():
     return render_template(
         'index.html',
         styles=app.config['CAPTION_STYLES'],
+        language_groups=app.config['LANGUAGE_GROUPS'],
         user=current_user,
         videos_processed=current_user.get_video_count(),
-        can_process=current_user.can_process_video()
+        can_process=current_user.can_process_video(),
+        free_user_video_limit=app.config['FREE_USER_VIDEO_LIMIT'],
+        max_target_languages_per_job=app.config['MAX_TARGET_LANGUAGES_PER_JOB'],
+        enable_burned_video=app.config['ENABLE_BURNED_VIDEO'],
     )
 
 
@@ -83,7 +99,7 @@ def upload_video():
         # Check usage limit
         if not current_user.can_process_video():
             return jsonify({
-                'error': 'You have reached your free limit (2 videos). Please upgrade to premium to continue.',
+                'error': f"You have reached your free limit ({app.config['FREE_USER_VIDEO_LIMIT']} videos). Please upgrade to premium to continue.",
                 'upgrade_required': True
             }), 403
         file = request.files.get('video')
@@ -118,29 +134,39 @@ def process_video():
         data = request.get_json(silent=True) or {}
         filename = data.get('filename')
         original_filename = data.get('original_filename', filename)
+        style = data.get('style')
         styles = data.get('styles')
+        languages = data.get('languages')
         language = data.get('language', 'en')
 
         if not filename:
             return jsonify({'error': 'Filename is required'}), 400
 
-        if not styles:
-            styles = ['meme']
+        if not style:
+            if styles:
+                style = styles[0]
+            else:
+                style = 'meme'
+
+        if not languages:
+            languages = [language] if language else ['en']
 
         logger.info(
             "process.requested",
             extra={
                 'user_id': current_user.id,
                 'source_filename': filename,
-                'language': language,
-                'styles': styles,
+                'languages': languages,
+                'style': style,
             },
         )
         result = transcript_service.process_video(
             user=current_user,
             filename=filename,
             original_filename=original_filename,
+            style=style,
             styles=styles,
+            languages=languages,
             language=language,
         )
         return jsonify(result), 200
@@ -177,7 +203,8 @@ def update_transcript(job_id):
     try:
         data = request.get_json(silent=True) or {}
         segments = data.get('segments', [])
-        transcript = transcript_service.update_transcript_job(current_user, job_id, segments)
+        language_code = data.get('language') or data.get('language_code')
+        transcript = transcript_service.update_transcript_job(current_user, job_id, segments, language_code=language_code)
         return jsonify({'success': True, 'transcript': transcript}), 200
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -196,12 +223,13 @@ def export_transcript(job_id):
         data = request.get_json(silent=True) or {}
         segments = data.get('segments')
         if segments:
-            transcript_service.update_transcript_job(current_user, job_id, segments)
-        styles = data.get('styles') or ['meme']
-        result = transcript_service.export_transcript(current_user, job_id, styles=styles)
+            language_code = data.get('language') or data.get('language_code')
+            transcript_service.update_transcript_job(current_user, job_id, segments, language_code=language_code)
+        languages = data.get('languages') or data.get('language')
+        result = transcript_service.export_transcript(current_user, job_id, languages=languages)
         logger.info(
             "transcript.exported",
-            extra={'user_id': current_user.id, 'job_id': job_id, 'styles': styles},
+            extra={'user_id': current_user.id, 'job_id': job_id, 'languages': result.get('selected_languages', [])},
         )
         return jsonify(result), 200
     except ValueError as e:
@@ -219,8 +247,7 @@ def preview_styles(job_id):
     """Preview styled caption output for the saved transcript."""
     try:
         data = request.get_json(silent=True) or {}
-        styles = data.get('styles') or ['meme']
-        result = transcript_service.preview_styles(current_user, job_id, styles=styles)
+        result = transcript_service.preview_styles(current_user, job_id)
         return jsonify(result), 200
     except FileNotFoundError as e:
         return jsonify({'error': str(e)}), 404
@@ -310,8 +337,8 @@ def cleanup(filename):
 @login_required
 def history():
     """View processing history"""
-    videos = processing_repository.get_user_history(current_user.id)
-    return render_template('history.html', videos=videos, user=current_user)
+    jobs = transcript_repository.get_jobs_for_user(current_user.id)
+    return render_template('history.html', jobs=jobs, user=current_user)
 
 
 @app.errorhandler(413)

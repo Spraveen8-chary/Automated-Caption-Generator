@@ -54,7 +54,7 @@
                         {% if user.is_premium %}
                             Unlimited video processing
                         {% else %}
-                            {{ videos_processed }} of 2 videos used
+                            {{ videos_processed }} of {{ free_user_video_limit }} videos used
                             {% if not can_process %}
                                 - <strong>Limit reached</strong>
                             {% endif %}
@@ -65,7 +65,7 @@
             {% if not user.is_premium %}
                 <div class="usage-progress">
                     <div class="progress-bar-mini">
-                        <div class="progress-bar-mini__fill" style="width: {{ (videos_processed / 2 * 100)|int }}%"></div>
+                        <div class="progress-bar-mini__fill" style="width: {{ (videos_processed / free_user_video_limit * 100)|int }}%"></div>
                     </div>
                     {% if not can_process %}
                         <button class="btn btn--primary btn--sm" onclick="showUpgradeModal()">
@@ -130,7 +130,7 @@
                         <div class="style-card__header">
                             <h3>{{ style.name }}</h3>
                             <div class="style-radio">
-                                 <input type="checkbox" name="captionStyle" id="style-{{ key }}" value="{{ key }}" {% if key == 'meme' %}checked{% endif %}>
+                                 <input type="radio" name="captionStyle" id="style-{{ key }}" value="{{ key }}" {% if key == 'meme' %}checked{% endif %}>
                                 <label for="style-{{ key }}"></label>
                             </div>
                         </div>
@@ -153,9 +153,24 @@
 
             <!-- Language Selection -->
             <section class="language-section" id="languageSection" style="display: none;">
-                <label for="languageSelect" class="form-label">🌍 Select Output Language</label>
-                <p class="language-hint">Audio will be transcribed/translated to this language</p>
-                <select id="languageSelect" class="form-control">
+                <label class="form-label">🌍 Select Output Languages</label>
+                <p class="language-hint">Pick one or more languages for the exported captions.</p>
+                <div class="language-options" id="languageOptions">
+                    {% for group in language_groups %}
+                        <fieldset class="language-group">
+                            <legend>{{ group.label }}</legend>
+                            <div class="language-grid">
+                                {% for code, label in group.options %}
+                                    <label class="language-option">
+                                        <input type="checkbox" name="outputLanguage" value="{{ code }}" {% if code == 'en' %}checked{% endif %}>
+                                        <span>{{ label }}</span>
+                                    </label>
+                                {% endfor %}
+                            </div>
+                        </fieldset>
+                    {% endfor %}
+                </div>
+                <select id="languageSelect" class="form-control" multiple size="8">
                     <optgroup label="🇮🇳 Indian Languages">
                         <option value="hi">Hindi (हिंदी)</option>
                         <option value="bn">Bengali (বাংলা)</option>
@@ -234,8 +249,8 @@
                     </div>
                     <div class="card__footer transcript-actions">
                         <button class="btn btn--outline" id="saveTranscriptBtn">Save Transcript</button>
-                        <button class="btn btn--outline" id="previewStylesBtn">Preview Styles</button>
-                        <button class="btn btn--primary" id="exportTranscriptBtn">Export Selected Styles</button>
+                        <button class="btn btn--outline" id="previewStylesBtn">Preview Outputs</button>
+                        <button class="btn btn--primary" id="exportTranscriptBtn">Export Selected Languages</button>
                     </div>
                 </div>
             </section>
@@ -245,10 +260,10 @@
                 <div class="card fade-in">
                     <div class="card__header">
                         <div>
-                            <h2>Styled Caption Preview</h2>
-                            <p class="subtitle">See how the saved transcript transforms in each selected style.</p>
+                            <h2>Language Preview</h2>
+                            <p class="subtitle">See how the saved transcript renders across each selected language output.</p>
                         </div>
-                        <div class="status status--info">Style Preview</div>
+                        <div class="status status--info">Output Preview</div>
                     </div>
                     <div class="card__body">
                         <div class="style-preview-grid" id="stylePreviewGrid"></div>
@@ -270,11 +285,11 @@
                                 <span class="info-value" id="totalCaptions">0</span>
                             </div>
                             <div class="info-item">
-                                <span class="info-label">Transcript:</span>
+                                <span class="info-label">Style:</span>
                                 <span class="info-value" id="selectedStyle">Ready</span>
                             </div>
                             <div class="info-item">
-                                <span class="info-label">Language:</span>
+                                <span class="info-label">Languages:</span>
                                 <span class="info-value" id="selectedLanguage">English</span>
                             </div>
                         </div>
@@ -325,7 +340,7 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Powered by Google Gemini AI | Made with ❤️ for Content Creators</p>
+            <p>Powered by configurable transcription providers | Made with ❤️ for Content Creators</p>
         </footer>
     </div>
 
@@ -369,6 +384,12 @@
     </div>
 
     <script>
+        window.APP_CONFIG = {
+            freeUserVideoLimit: {{ free_user_video_limit|tojson }},
+            maxTargetLanguagesPerJob: {{ max_target_languages_per_job|tojson }},
+            enableBurnedVideo: {{ enable_burned_video|tojson }}
+        };
+
         // Modal functions
         function showUpgradeModal() {
             document.getElementById('upgradeModal').style.display = 'flex';

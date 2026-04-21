@@ -10,12 +10,14 @@ class ExportService:
         self.upload_folder = upload_folder
         self.caption_formatter = caption_formatter or CaptionFormatter()
 
-    def build_srt_filename(self, source_filename, style):
+    def build_srt_filename(self, source_filename, style, language=None):
         base_name = source_filename.rsplit('.', 1)[0]
+        if language:
+            return f"{base_name}_{style}_{language}.srt"
         return f"{base_name}_{style}.srt"
 
-    def export_srt(self, captions, source_filename, style):
-        srt_filename = self.build_srt_filename(source_filename, style)
+    def export_srt(self, captions, source_filename, style, language=None):
+        srt_filename = self.build_srt_filename(source_filename, style, language=language)
         srt_path = os.path.join(self.upload_folder, srt_filename)
         self.caption_formatter.generate_srt(captions, srt_path)
         return {

@@ -1,31 +1,30 @@
-# Phase 3 Transcript Workflow
+# Phase 3 Multi-Language Workflow
 
 ## Purpose
-Shift the app from one-shot caption generation to a transcript-first workflow where users can review and edit segments before exporting captions.
+Move the app from a single-language transcript flow to a one-style, multi-language output model.
 
 ## What changed
-- The `/process` route now creates a structured transcript job.
-- Transcript jobs and segments are persisted separately.
-- Users can fetch a transcript job with `GET /transcripts/<job_id>`.
-- Users can save edits with `PUT /transcripts/<job_id>`.
-- Users can export SRTs from the saved transcript with `POST /transcripts/<job_id>/export`.
-- The main page now shows an editable transcript editor instead of only a static preview.
+- The `/process` route now creates one root transcript job and multiple language outputs.
+- Each target language gets its own transcript payload and export artifact tracking row.
+- Users can still review and edit the primary transcript before export.
+- The history screen now groups generated outputs under each source job.
 
 ## Workflow
 1. Upload the video.
-2. Transcribe the audio into structured segments.
-3. Review and edit the transcript blocks.
-4. Save the transcript or export directly.
-5. Generate SRTs from the saved transcript state.
+2. Choose one caption style.
+3. Choose multiple target languages.
+4. Transcribe the audio for each requested language.
+5. Review and edit the primary transcript.
+6. Export SRT files for each selected language.
 
 ## Data separation
-- Raw transcript lives in `TranscriptJob.transcript_payload` and `TranscriptSegment`.
-- Styled caption output is generated only at export time.
-- Export rows remain in `VideoProcessing` for history and download compatibility.
+- `TranscriptJob` stores the root request metadata.
+- `TranscriptOutput` stores one language-specific transcript and export state.
+- `TranscriptSegment` remains the editable segment store for the primary language output.
+- `VideoProcessing` remains the downloadable history/export record for compatibility.
 
 ## Acceptance criteria
-- Users can view transcript segments with timestamps.
-- Users can edit caption text before export.
-- Changes persist in the database.
-- Exported SRTs are generated from the saved transcript state.
-
+- Users can choose multiple languages in a single run.
+- One job can produce multiple language outputs.
+- The saved job tracks the selected style once and languages many.
+- History shows the grouped outputs for each job.

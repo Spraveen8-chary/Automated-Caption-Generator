@@ -1,46 +1,46 @@
-# Architecture
+# Architecture - v3
 
-## Current baseline architecture
-The current system is a Flask web application with authentication, upload handling, transcription, caption formatting, SRT generation, history tracking, and admin dashboards.[file:19][file:22][file:29][file:31][file:32]
+## Baseline from current project
+The existing app is a Flask-based caption generator with auth, history, admin, SQLite persistence, multi-style processing, one selected language per run, and Gemini-based transcription.[file:19][file:23][file:28][file:32]
 
-## Target architecture
-The target architecture should separate the application into the following layers:
-- Presentation layer: HTML, CSS, JS screens for upload, transcript editing, history, auth, and admin.[file:29][file:30][file:31][file:32]
-- Application layer: route handlers and workflow orchestration.[file:19]
-- Domain/service layer: transcription provider, transcript manager, style engine, caption formatter, video renderer.[file:25][file:26][file:28]
-- Data layer: users, processing jobs, transcript segments, generated assets.[file:23]
-- Infrastructure layer: config, env variables, file storage, third-party APIs.[file:21][file:18]
+## Target workflow
+1. User uploads one video.
+2. User selects one style.
+3. User selects multiple target languages.
+4. System transcribes once using configured provider.
+5. System creates per-language outputs.
+6. System generates SRT per language.
+7. System burns captions into video per language when enabled.
+8. System stores artifacts and exposes them in history/admin.
 
-## Recommended modules
-- `services/transcription_provider.py`
-- `services/transcript_service.py`
-- `services/style_service.py`
-- `services/export_service.py`
-- `services/preview_service.py`
-- `repositories/processing_repository.py`
-- `repositories/transcript_repository.py`
-- `routes/upload.py`
-- `routes/process.py`
-- `routes/history.py`
-- `routes/admin.py`
+## Key components
+### Config layer
+- App config
+- Env validation
+- Provider selection
+- Usage-limit selection
 
-## Core design rules
-- Routes should orchestrate, not own business logic.
-- Services should be independently testable.
-- Formatting should not know about HTTP concerns.
-- Rendering should not know about auth concerns.
-- Data models should reflect workflow state explicitly.
+### Application layer
+- Upload controller
+- Processing controller
+- History controller
+- Admin controller
 
-## Workflow states
-Recommended states:
-- uploaded
-- audio_extracted
-- transcribed
-- transcript_reviewed
-- styled
-- srt_generated
-- preview_generated
-- failed
+### Service layer
+- `transcription_provider`
+- `provider_router`
+- `language_output_service`
+- `caption_style_service`
+- `srt_export_service`
+- `video_burn_service`
+- `usage_policy_service`
+- `artifact_cleanup_service`
 
-## Key architectural decision
-Keep backward compatibility with the existing Flask foundation while introducing modular boundaries incrementally instead of replacing everything at once.[file:19]
+### Data layer
+- User
+- Root processing job
+- Per-language output record
+- Generated artifact record
+
+## Processing rule
+A root job should represent one uploaded video processing request. Each target language should create a child output record tied to the same chosen style.

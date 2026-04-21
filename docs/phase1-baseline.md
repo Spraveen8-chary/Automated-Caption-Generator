@@ -1,42 +1,52 @@
-# Phase 1 Baseline
+# Phase 1 Requirements Freeze
 
 ## Purpose
-Define the V1 product scope, system boundaries, and API contracts for the current Flask app before any larger refactor.
+Freeze the v3 product scope, system boundaries, and data assumptions before implementation work starts.
 
-## V1 Scope
-### In scope
+This freeze follows the current-state analysis in [`docs/phase0-analysis.md`](phase0-analysis.md).
+
+## Frozen Product Rules
+- One run accepts one selected caption style.
+- One run accepts multiple target languages.
+- Free-user usage limits come from environment configuration.
+- The transcription provider comes from environment configuration.
+- Burned-in captioned video is a required output, not an optional add-on.
+- The system should still remain usable without a mandatory paid API in the baseline path.
+
+## In Scope
 - User registration, login, logout, and session status.
-- Video upload for supported formats.
-- Audio extraction from uploaded video.
-- Gemini-based transcription and translation into a selected output language.
-- Caption styling for `meme`, `formal`, `casual`, and `aesthetic`.
-- SRT generation and download.
-- User processing history.
+- Supported video upload.
+- Transcription using a configurable provider.
+- Translation into multiple target languages per job.
+- Caption styling for the selected style.
+- SRT generation per target language.
+- Burned-caption video generation per target language.
+- Download of generated artifacts.
+- Personal history.
 - Admin visibility into users and processing activity.
-- Free-user usage limits and premium bypass.
 
-### Out of scope for V1
-- Editable transcript timeline.
-- Burned-in preview video rendering.
+## Out of Scope
+- Multiple styles in the same run.
+- Editable transcript timeline as the primary workflow.
 - Real-time collaboration.
 - Team workspaces.
-- Multi-provider transcription fallback.
 - Major admin redesign.
 
 ## Actors
-- Guest: can only reach auth pages.
-- Free user: can upload and process up to 2 videos.
-- Premium user: can process without the free limit.
+- Guest: can access auth pages only.
+- Free user: can process up to the configured free limit.
+- Premium user: can bypass the free limit.
 - Admin: can view system-wide analytics and history.
 
 ## Core Use Cases
 1. Register a new account.
 2. Log in and resume a session.
 3. Upload a supported video file.
-4. Generate captions for one or more styles.
-5. Download generated SRT files.
-6. Review personal history.
-7. Review admin metrics and user activity.
+4. Choose one caption style and multiple target languages.
+5. Generate caption outputs for each target language.
+6. Download SRT files and burned-caption video files.
+7. Review personal history.
+8. Review admin metrics and user activity.
 
 ## System Boundaries
 ### Presentation layer
@@ -49,62 +59,58 @@ Define the V1 product scope, system boundaries, and API contracts for the curren
 - Auth flow in `auth.py`.
 
 ### Domain and service layer
-- Video/audio handling in `utils/video_processor.py`.
+- Video and audio handling in `utils/video_processor.py`.
 - Transcription in `utils/transcription.py`.
-- Caption formatting and SRT export in `utils/caption_formatter.py`.
+- Caption formatting in `utils/caption_formatter.py`.
+- Provider selection and orchestration in service/repository helpers.
 
 ### Data layer
 - SQLAlchemy models in `models.py`.
-- SQLite database in `instance/caption_generator.db` for local development.
+- SQLite database for local development.
 
 ### Infrastructure layer
 - Environment config in `config.py` and `.env`.
 - Upload storage in `uploads/`.
-- Third-party transcription API via Google Gemini.
+- Third-party transcription provider selected by env.
 
 ## Workflow States
 - uploaded
 - audio_extracted
 - transcribed
+- translated
 - styled
 - srt_generated
+- video_burned
 - completed
 - failed
 
 ## API Boundary Definitions
 ### Auth
-- `GET /auth/register`: render registration page.
-- `POST /auth/register`: create a user.
-- `GET /auth/login`: render login page.
-- `POST /auth/login`: authenticate a user.
-- `GET /auth/logout`: clear the session.
-- `GET /auth/user/status`: return current user status.
+- `GET /auth/register`
+- `POST /auth/register`
+- `GET /auth/login`
+- `POST /auth/login`
+- `GET /auth/logout`
+- `GET /auth/user/status`
 
 ### App
-- `GET /`: main upload and caption generation page.
-- `POST /upload`: save the uploaded video file.
-- `POST /process`: extract audio, transcribe, style, and export captions.
-- `GET /download/<filename>`: download an SRT file.
-- `DELETE /cleanup/<filename>`: remove a stored video file.
-- `GET /history`: show the current user's history.
-- `GET /admin`: show admin analytics.
+- `GET /`
+- `POST /upload`
+- `POST /process`
+- `GET /download/<filename>`
+- `DELETE /cleanup/<filename>`
+- `GET /history`
+- `GET /admin`
 
-## Target Module Structure
-The current monolith stays in place for V1, but the next refactor boundary should be:
-- `services/transcription_provider.py`
-- `services/transcript_service.py`
-- `services/style_service.py`
-- `services/export_service.py`
-- `services/preview_service.py`
-- `repositories/processing_repository.py`
-- `repositories/transcript_repository.py`
-- `routes/upload.py`
-- `routes/process.py`
-- `routes/history.py`
-- `routes/admin.py`
+## Data Model Direction
+- A root job should represent one uploaded video processing request.
+- A child output record should represent each target language generated from the root job.
+- Each language output should be able to point to both SRT and burned-video artifacts.
 
 ## Acceptance Criteria
-- The V1 scope is explicit and frozen.
-- Every major route has a documented purpose and input/output shape.
-- The current app can be mapped cleanly to future module boundaries.
-- Future refactors can proceed without re-deciding basic product scope.
+- The v3 scope is explicit and frozen.
+- The one-style, multi-language rule is documented.
+- Free-user limits are documented as env-driven.
+- Provider selection is documented as env-driven.
+- Burned-caption video output is documented as required.
+- Future refactors can proceed without re-deciding product scope.

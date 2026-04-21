@@ -6,7 +6,7 @@ Flask app for turning uploaded videos into editable transcripts and styled SRT e
 
 - Upload a video and extract audio for transcription
 - Review transcript segments before export
-- Preview and export multiple caption styles
+- Preview and export one caption style across multiple languages
 - Download generated `.srt` files
 - Track processing history for each user
 - Provide an admin dashboard for usage visibility
@@ -16,8 +16,8 @@ Flask app for turning uploaded videos into editable transcripts and styled SRT e
 1. Upload a video.
 2. Generate a transcript job from the uploaded source.
 3. Edit transcript segments in the browser.
-4. Preview the selected caption styles.
-5. Export one or more SRT files.
+4. Preview the generated language outputs.
+5. Export one SRT file per selected language.
 6. Download the exported captions from the same app.
 
 ## Project layout
@@ -49,9 +49,19 @@ TEMP_FOLDER=uploads
 MAX_UPLOAD_SIZE=100
 ALLOWED_EXTENSIONS=mp4,mov,avi,mkv,webm
 LOG_LEVEL=INFO
+FREE_USER_VIDEO_LIMIT=2
+MAX_TARGET_LANGUAGES_PER_JOB=5
+ENABLE_BURNED_VIDEO=true
+TRANSCRIPTION_PROVIDER=gemini
 GEMINI_MODEL=gemini-2.5-flash
 GEMINI_MODEL_FALLBACKS=gemini-2.0-flash
+WHISPER_MODEL=base
+ASSEMBLYAI_API_KEY=
 ```
+
+`TRANSCRIPTION_PROVIDER` can be set to `gemini`, `whisper`, or `assemblyai`. If you switch to `whisper`, install either `whisper` or `faster-whisper`. If you switch to `assemblyai`, provide `ASSEMBLYAI_API_KEY` and install the AssemblyAI SDK.
+
+If Gemini hits a quota limit, the app will try Whisper automatically when the local Whisper dependencies are installed.
 
 ## Run locally
 
@@ -67,6 +77,7 @@ Then open `http://localhost:5000`.
 - Exported SRT files remain in `uploads/` so the download route stays stable.
 - Structured JSON logging is enabled through the application logger.
 - Core service coverage lives in `tests/test_core_services.py`.
+- The current workflow uses one caption style and multiple target languages per job.
 
 ## Phase docs
 

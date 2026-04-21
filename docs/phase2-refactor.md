@@ -1,33 +1,29 @@
 # Phase 2 Refactor
 
 ## Purpose
-Introduce a service/repository boundary without breaking the current Flask application flow.
+Move transcription and usage settings out of hardcoded paths and into env-driven configuration.
 
 ## What changed
-- Upload handling now lives in `services/upload_service.py`.
-- Transcription is accessed through `services/transcription_provider.py`.
-- The processing workflow is orchestrated in `services/transcript_service.py`.
-- Caption styling and SRT export are wrapped in dedicated service classes.
-- Transcript jobs and segments are persisted separately from export artifacts.
-- Route handlers now delegate more work instead of owning the full pipeline.
+- Added env-backed limits for free users and target-language caps.
+- Added `TRANSCRIPTION_PROVIDER` selection with a provider factory.
+- Kept Gemini as a compatibility provider while adding Whisper and AssemblyAI adapters.
+- Wired the Flask app to build the selected provider at startup.
+- Exposed the configured usage limit to the UI and client script.
 
-## New module boundaries
-- `services/transcription_provider.py`
-- `services/transcript_service.py`
-- `services/style_service.py`
-- `services/export_service.py`
-- `services/upload_service.py`
-- `services/preview_service.py`
-- `repositories/processing_repository.py`
-- `repositories/transcript_repository.py`
+## New configuration
+- `FREE_USER_VIDEO_LIMIT`
+- `MAX_TARGET_LANGUAGES_PER_JOB`
+- `ENABLE_BURNED_VIDEO`
+- `TRANSCRIPTION_PROVIDER`
+- `WHISPER_MODEL`
+- `ASSEMBLYAI_API_KEY`
 
-## Transcript storage design
-- `TranscriptJob` stores the transcript request metadata.
-- `TranscriptSegment` stores timestamped transcript segments.
-- `VideoProcessing` still stores export/history rows for backward compatibility.
+## Provider flow
+- `gemini` uses the existing Gemini transcription implementation.
+- `whisper` uses `whisper` or `faster-whisper` when installed.
+- `assemblyai` uses the AssemblyAI SDK when installed.
 
 ## Verification notes
-- The upload and process routes should still return the same JSON shape expected by the current frontend.
-- SRT generation should still produce downloadable files in `uploads/`.
-- Admin and history views should continue to load from the same logical data.
-
+- Startup validation should fail fast if the selected provider is invalid or missing required credentials.
+- The free-limit banner and API responses now use the configured limit instead of a magic number.
+- Transcript jobs now store the selected provider name.

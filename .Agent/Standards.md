@@ -1,39 +1,26 @@
-# Engineering Standards
+# Standards — v3
 
-## Coding standards
-- Prefer small, single-responsibility modules.
-- Avoid large route handlers with mixed responsibilities.[file:19]
-- Keep provider-specific code isolated from domain logic.[file:28]
-- Use descriptive names for services, states, and artifacts.
-- Keep reusable formatting logic independent from UI logic.[file:25][file:32]
+## Configuration rules
+- Business limits must not be hardcoded when they are product settings.
+- Provider selection must be centralized.
+- Optional providers must fail clearly when misconfigured.
 
-## Documentation standards
-Every new feature should define:
-- Purpose.
-- Inputs.
-- Outputs.
-- Dependencies.
-- Failure cases.
-- Acceptance criteria.
+## Data rules
+- Separate root jobs from per-language outputs.
+- Do not duplicate original video metadata across child outputs unnecessarily.
+- Track artifact paths explicitly.
 
-## Refactoring standards
-- Preserve working behavior before optimization.
-- Refactor one dependency boundary at a time.
-- Document any intentional breaking change.
-- Maintain migration notes for database changes.[file:23]
+## Service rules
+- Route handlers should not know provider internals.
+- One service should own usage-policy checks.
+- One service should own burned-video generation.
 
-## Testing standards
-- Unit test service methods where possible.
-- Smoke test end-to-end upload to export path.
-- Validate edge cases: unsupported file, failed transcription, empty transcript, rendering failure.[file:19][file:28]
+## UI rules
+- UI control type must reflect actual business rule; use single-select for style if only one style is allowed, and multi-select for languages.[file:32]
+- Result cards should clearly distinguish each language output.
 
-## UI standards
-- Keep upload flow simple.
-- Make processing states visible to users.[file:32]
-- Show clear recovery messages on failure.[file:32]
-- Avoid hiding critical workflow state transitions.
-
-## Project management standards
-- Work in small phases.
-- Complete one acceptance-criteria set before opening the next phase.
-- Update `Progress.md` and `Decisions.md` continuously.
+## Testing rules
+- Test free-limit env behavior.
+- Test provider switch behavior.
+- Test one-style multi-language workflow.
+- Test SRT and burned-video artifact creation.[file:25][file:26]

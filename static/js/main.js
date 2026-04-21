@@ -2,12 +2,17 @@
 let state = {
     uploadedFile: null,
     uploadedFilename: null,
-    selectedStyles: ['meme'],
-    selectedLanguage: 'en',
+    selectedStyle: 'meme',
+    selectedLanguages: ['en'],
+    primaryLanguage: 'en',
+    languageOutputs: [],
     transcriptJobId: null,
     transcript: null,
     latestExport: null
 };
+
+const appConfig = window.APP_CONFIG || {};
+const freeUserVideoLimit = Number(appConfig.freeUserVideoLimit || 2);
 
 // DOM elements
 const uploadArea = document.getElementById('uploadArea');
@@ -24,6 +29,7 @@ const styleChecks = document.querySelectorAll('input[name="captionStyle"]');
 
 const languageSection = document.getElementById('languageSection');
 const languageSelect = document.getElementById('languageSelect');
+const languageCheckboxes = document.querySelectorAll('input[name="outputLanguage"]');
 
 const actionSection = document.getElementById('actionSection');
 const generateBtn = document.getElementById('generateBtn');
@@ -86,29 +92,31 @@ uploadArea.addEventListener('drop', (e) => {
 
 // Style selection (checkboxes)
 styleCards.forEach(card => {
-    const cb = card.querySelector('input[type="checkbox"]');
+    const cb = card.querySelector('input[type="radio"]');
     cb.addEventListener('change', handleStyleSelection);
     card.addEventListener('click', function(event) {
-        if (event.target !== cb) cb.checked = !cb.checked;
-        card.classList.toggle('selected');
+        if (event.target !== cb) cb.checked = true;
         handleStyleSelection();
     });
 });
 
 function handleStyleSelection() {
-    const checked = [];
-    styleChecks.forEach(cb => {
-        if (cb.checked) checked.push(cb.value);
+    const checked = Array.from(styleChecks).find(cb => cb.checked);
+    state.selectedStyle = checked ? checked.value : 'meme';
+
+    styleCards.forEach(card => {
+        const radio = card.querySelector('input[type="radio"]');
+        card.classList.toggle('selected', radio && radio.checked);
     });
-    state.selectedStyles = checked;
+
     if (state.transcriptJobId) {
         previewStyles();
     }
 }
 
 // Language selection
-languageSelect.addEventListener('change', (e) => {
-    state.selectedLanguage = e.target.value;
+languageCheckboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', syncLanguageSelection);
 });
 
 // Generate button
@@ -127,6 +135,9 @@ newVideoBtn.addEventListener('click', reset);
 
 // Retry button
 retryBtn.addEventListener('click', reset);
+
+state.selectedLanguages = Array.from(languageCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
+handleStyleSelection();
 
 // File select handlers
 function handleFileSelect(e) {
@@ -177,11 +188,31 @@ function formatLanguageLabel(code) {
     return option ? option.textContent : code.toUpperCase();
 }
 
+function formatLanguageList(codes) {
+    if (!codes || codes.length === 0) return 'English';
+    return codes.map(formatLanguageLabel).join(', ');
+}
+
+function getSelectedLanguages() {
+    return Array.from(languageCheckboxes)
+        .filter(checkbox => checkbox.checked)
+        .map(checkbox => checkbox.value);
+}
+
+function syncLanguageSelection() {
+    state.selectedLanguages = getSelectedLanguages();
+}
+
 // Main process
 async function processVideo() {
     try {
-        if (!state.selectedStyles || state.selectedStyles.length === 0) {
-            showError('Please select at least one caption style.');
+        if (!state.selectedStyle) {
+            showError('Please select a caption style.');
+            return;
+        }
+
+        if (!state.selectedLanguages || state.selectedLanguages.length === 0) {
+            showError('Please select at least one output language.');
             return;
         }
 
@@ -211,8 +242,10 @@ async function processVideo() {
             body: JSON.stringify({
                 filename: state.uploadedFilename,
                 original_filename: uploadData.original_filename,
-                styles: state.selectedStyles,
-                language: state.selectedLanguage
+                style: state.selectedStyle,
+                styles: [state.selectedStyle],
+                languages: state.selectedLanguages,
+                language: state.selectedLanguages[0]
             })
         });
         if (!processResponse.ok) {
@@ -223,6 +256,10 @@ async function processVideo() {
         const processData = await processResponse.json();
         state.transcriptJobId = processData.transcript_job_id;
         state.transcript = processData.transcript;
+        state.languageOutputs = processData.outputs || [];
+        state.selectedStyle = processData.selected_style || state.selectedStyle;
+        state.selectedLanguages = processData.selected_languages || state.selectedLanguages;
+        state.primaryLanguage = processData.primary_language || state.selectedLanguages[0];
         state.latestExport = null;
         updateUsageBanner(processData);
 
@@ -253,12 +290,14 @@ function updateUsageBanner(data) {
         if (data.is_premium) {
             usageParagraph.textContent = 'Unlimited video processing';
         } else if (typeof data.videos_processed !== 'undefined') {
-            usageParagraph.textContent = `${data.videos_processed} of 2 videos used`;
+            const configuredLimit = Number(data.free_user_video_limit || freeUserVideoLimit || 2);
+            usageParagraph.textContent = `${data.videos_processed} of ${configuredLimit} videos used`;
         }
     }
 
     if (usageFill && typeof data.videos_processed !== 'undefined') {
-        usageFill.style.width = `${Math.min((data.videos_processed / 2) * 100, 100)}%`;
+        const configuredLimit = Number(data.free_user_video_limit || freeUserVideoLimit || 2);
+        usageFill.style.width = `${Math.min((data.videos_processed / configuredLimit) * 100, 100)}%`;
     }
 }
 
@@ -323,7 +362,11 @@ function showTranscriptEditor(data) {
     const transcript = data.transcript || state.transcript;
     state.transcript = transcript;
     transcriptStatus.textContent = 'Draft';
-    transcriptMeta.textContent = `${transcript.original_filename} | ${transcript.segments.length} segments | ${formatLanguageLabel(state.selectedLanguage)}`;
+    const primaryLanguage = data.primary_language || state.primaryLanguage || state.selectedLanguages[0];
+    state.selectedStyle = data.selected_style || state.selectedStyle;
+    state.selectedLanguages = data.selected_languages || state.selectedLanguages;
+    state.primaryLanguage = primaryLanguage;
+    transcriptMeta.textContent = `${transcript.original_filename} | ${transcript.segments.length} segments | ${formatLanguageLabel(primaryLanguage)} | ${formatLanguageList(state.selectedLanguages)}`;
     renderTranscriptEditor(transcript);
     previewStyles();
     window.scrollTo({ top: transcriptSection.offsetTop - 20, behavior: 'smooth' });
@@ -345,7 +388,7 @@ async function saveTranscript() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ segments })
+            body: JSON.stringify({ segments, language_code: state.primaryLanguage })
         });
 
         const result = await response.json();
@@ -370,20 +413,10 @@ async function previewStyles() {
             return;
         }
 
-        if (!state.selectedStyles || state.selectedStyles.length === 0) {
-            return;
-        }
-
         previewStylesBtn.disabled = true;
 
         const response = await fetch(`/transcripts/${state.transcriptJobId}/styles`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                styles: state.selectedStyles
-            })
+            method: 'POST'
         });
 
         const result = await response.json();
@@ -417,7 +450,7 @@ function renderStylePreviews(stylePreviews) {
         header.className = 'style-preview-card__header';
 
         const title = document.createElement('h4');
-        title.textContent = capitalize(preview.style);
+        title.textContent = formatLanguageLabel(preview.language_code || preview.language || preview.style);
 
         const count = document.createElement('span');
         count.className = 'style-preview-card__count';
@@ -449,8 +482,13 @@ async function exportTranscript() {
             return;
         }
 
-        if (!state.selectedStyles || state.selectedStyles.length === 0) {
-            showError('Please select at least one caption style.');
+        if (!state.selectedStyle) {
+            showError('Please select a caption style.');
+            return;
+        }
+
+        if (!state.selectedLanguages || state.selectedLanguages.length === 0) {
+            showError('Please select at least one output language.');
             return;
         }
 
@@ -465,8 +503,9 @@ async function exportTranscript() {
             },
             body: JSON.stringify({
                 segments,
-                styles: state.selectedStyles,
-                language: state.selectedLanguage
+                style: state.selectedStyle,
+                languages: state.selectedLanguages,
+                language_code: state.primaryLanguage
             })
         });
 
@@ -490,20 +529,22 @@ async function exportTranscript() {
 
 function showExportResults(data) {
     progressSection.style.display = 'none';
-        transcriptSection.style.display = 'block';
-        stylePreviewSection.style.display = 'block';
-        resultsSection.style.display = 'block';
+    transcriptSection.style.display = 'block';
+    stylePreviewSection.style.display = 'block';
+    resultsSection.style.display = 'block';
     previewList.innerHTML = '';
 
     const results = data.results || [];
     if (results.length > 0) {
+        state.selectedStyle = data.selected_style || state.selectedStyle;
+        state.selectedLanguages = data.selected_languages || state.selectedLanguages;
         totalCaptionsEl.textContent = results.reduce((sum, result) => sum + (result.total_captions || 0), 0);
-        selectedStyleEl.textContent = state.selectedStyles.map(capitalize).join(', ');
-        selectedLanguageEl.textContent = formatLanguageLabel(state.selectedLanguage);
+        selectedStyleEl.textContent = capitalize(state.selectedStyle);
+        selectedLanguageEl.textContent = formatLanguageList(state.selectedLanguages);
 
         results.forEach((result, i) => {
             const title = document.createElement('h4');
-            title.textContent = `Style: ${capitalize(result.style)}`;
+            title.textContent = `Language: ${formatLanguageLabel(result.language)}`;
             previewList.appendChild(title);
 
             (result.captions || []).forEach((caption, idx) => {
@@ -515,7 +556,7 @@ function showExportResults(data) {
 
             const download = document.createElement('button');
             download.className = 'btn btn--primary btn--sm';
-            download.textContent = `Download SRT (${result.style})`;
+            download.textContent = `Download SRT (${formatLanguageLabel(result.language)})`;
             download.addEventListener('click', () => {
                 window.location.href = `/download/${result.srt_filename}`;
             });
@@ -533,8 +574,8 @@ function showExportResults(data) {
         downloadBtn.style.display = 'inline-flex';
     } else {
         totalCaptionsEl.textContent = '0';
-        selectedStyleEl.textContent = 'Ready';
-        selectedLanguageEl.textContent = formatLanguageLabel(state.selectedLanguage);
+        selectedStyleEl.textContent = capitalize(state.selectedStyle);
+        selectedLanguageEl.textContent = formatLanguageList(state.selectedLanguages);
         downloadBtn.style.display = 'none';
     }
 }
@@ -550,8 +591,10 @@ function reset() {
     state = {
         uploadedFile: null,
         uploadedFilename: null,
-        selectedStyles: ['meme'],
-        selectedLanguage: 'en',
+        selectedStyle: 'meme',
+        selectedLanguages: ['en'],
+        primaryLanguage: 'en',
+        languageOutputs: [],
         transcriptJobId: null,
         transcript: null,
         latestExport: null
@@ -578,14 +621,17 @@ function reset() {
         if (cb.value === 'meme') styleCards[idx].classList.add('selected');
     });
 
-    languageSelect.value = 'en';
+    Array.from(languageCheckboxes).forEach(checkbox => {
+        checkbox.checked = checkbox.value === 'en';
+    });
+    syncLanguageSelection();
     transcriptEditor.innerHTML = '';
-    transcriptMeta.textContent = 'Edit the raw transcript before exporting styles.';
+    transcriptMeta.textContent = 'Edit the raw transcript before exporting outputs.';
     transcriptStatus.textContent = 'Draft';
     stylePreviewGrid.innerHTML = '';
     previewList.innerHTML = '';
     totalCaptionsEl.textContent = '0';
-    selectedStyleEl.textContent = 'Ready';
+    selectedStyleEl.textContent = capitalize(state.selectedStyle);
     selectedLanguageEl.textContent = 'English';
 }
 

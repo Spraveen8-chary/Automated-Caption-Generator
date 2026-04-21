@@ -33,7 +33,6 @@ class ProcessingRepository:
         return TranscriptJob.query.filter_by(
             user_id=user_id,
             source_filename=filename,
-            language=language,
         ).first() is not None
 
     def get_user_history(self, user_id):

@@ -2,20 +2,25 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from flask import Flask
 
+from config import Config
 from models import db, User, VideoProcessing
 from repositories.processing_repository import ProcessingRepository
 from repositories.transcript_repository import TranscriptRepository
 from services.export_service import ExportService
 from services.upload_service import UploadService
 from services.style_service import StyleService
+from services.transcription_provider import GeminiTranscriptionProvider, build_transcription_provider
 from services.transcript_service import TranscriptService
 from utils.caption_formatter import CaptionFormatter
 
 
 class FakeTranscriptionProvider:
+    provider_name = 'fake-provider'
+
     def __init__(self, transcript):
         self.transcript = transcript
         self.calls = []
@@ -126,6 +131,37 @@ class CoreServiceTests(unittest.TestCase):
         self.assertTrue(os.path.exists(result['filepath']))
         self.assertEqual(result['original_filename'], 'demo_clip.mp4')
 
+    def test_build_transcription_provider_uses_configured_backend(self):
+        provider = build_transcription_provider(
+            provider_name='gemini',
+            google_api_key='test-key',
+            whisper_model='base',
+            assemblyai_api_key='assembly-key',
+        )
+
+        self.assertIsInstance(provider, GeminiTranscriptionProvider)
+
+    def test_validate_app_config_rejects_invalid_provider(self):
+        with patch.object(Config, 'TRANSCRIPTION_PROVIDER', 'invalid-provider'), patch.object(Config, 'FREE_USER_VIDEO_LIMIT', 2), patch.object(Config, 'MAX_TARGET_LANGUAGES_PER_JOB', 5):
+            with self.assertRaises(ValueError):
+                Config.validate_app_config()
+
+    def test_transcript_service_reads_configured_free_limit(self):
+        transcript = {'text': 'hello world', 'duration': 1.0, 'segments': []}
+        fake_provider = FakeTranscriptionProvider(transcript)
+        fake_video_processor = FakeVideoProcessor(self.tempdir.name)
+        with patch.object(Config, 'FREE_USER_VIDEO_LIMIT', 7):
+            service = TranscriptService(
+                self.tempdir.name,
+                api_key='test-key',
+                video_processor=fake_video_processor,
+                transcription_provider=fake_provider,
+                transcript_repository=TranscriptRepository(),
+                processing_repository=ProcessingRepository(),
+            )
+
+        self.assertEqual(service.free_user_video_limit, 7)
+
     def test_transcript_repository_persists_and_updates_segments(self):
         repository = TranscriptRepository()
         transcript = {
@@ -142,8 +178,9 @@ class CoreServiceTests(unittest.TestCase):
                 user_id=self.user_id,
                 source_filename='clip.mp4',
                 original_filename='clip.mp4',
-                language='en',
-                transcript=transcript,
+                selected_style='meme',
+                provider='fake-provider',
+                language_outputs=[{'language_code': 'en', 'transcript': transcript}],
             )
 
             self.assertEqual(len(job.segments), 2)
@@ -200,25 +237,29 @@ class CoreServiceTests(unittest.TestCase):
                 user=user,
                 filename='clip.mp4',
                 original_filename='clip.mp4',
-                styles=['meme', 'formal'],
-                language='en',
+                style='meme',
+                languages=['en', 'hi'],
             )
 
             self.assertTrue(result['success'])
-            self.assertEqual(result['selected_styles'], ['meme', 'formal'])
+            self.assertEqual(result['selected_style'], 'meme')
+            self.assertEqual(result['selected_languages'], ['en', 'hi'])
+            self.assertEqual(len(result['outputs']), 2)
             self.assertFalse(os.path.exists(video_path))
             self.assertFalse(os.path.exists(os.path.join(self.tempdir.name, 'clip.mp3')))
-            self.assertEqual(fake_provider.calls[0]['language'], 'en')
+            self.assertEqual([call['language'] for call in fake_provider.calls], ['en', 'hi'])
             self.assertEqual(len(transcript_repository.get_jobs_for_user(self.user_id)), 1)
+            self.assertEqual(transcript_repository.get_jobs_for_user(self.user_id)[0].provider, 'fake-provider')
+            self.assertEqual(transcript_repository.serialize_job(transcript_repository.get_jobs_for_user(self.user_id)[0])['outputs'][0]['language_code'], 'en')
 
-            export_result = service.export_transcript(user, result['transcript_job_id'], styles=['meme', 'formal'])
+            export_result = service.export_transcript(user, result['transcript_job_id'], languages=['en', 'hi'])
             self.assertEqual(len(export_result['results']), 2)
             self.assertEqual(
                 VideoProcessing.query.filter_by(user_id=self.user_id).count(),
                 2,
             )
-            self.assertTrue(os.path.exists(os.path.join(self.tempdir.name, 'clip_meme.srt')))
-            self.assertTrue(os.path.exists(os.path.join(self.tempdir.name, 'clip_formal.srt')))
+            self.assertTrue(os.path.exists(os.path.join(self.tempdir.name, 'clip_meme_en.srt')))
+            self.assertTrue(os.path.exists(os.path.join(self.tempdir.name, 'clip_meme_hi.srt')))
 
 
 if __name__ == '__main__':

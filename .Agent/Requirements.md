@@ -1,26 +1,27 @@
-# Requirements Baseline
+# Requirements - v3
 
 ## Functional requirements
-- User can register and log in.[file:19][file:20][file:30][file:33]
-- User can upload supported video files for processing.[file:19][file:32]
-- System can extract audio from uploaded video.[file:19][file:26]
-- System can produce timestamped transcript segments.[file:28]
-- User can review and edit transcript segments.
-- System can apply caption styles to transcript content.[file:25][file:32]
-- System can generate SRT output.[file:19][file:25]
-- System can generate preview video output with captions.[file:26][cite:5]
-- User can access processing history.[file:19][file:31]
-- Admin can view platform usage and activity.[file:19][file:29]
+- User can upload a supported video.[file:19][file:32]
+- User can choose one caption style per run.[file:32]
+- User can choose multiple target languages per run.[file:19][file:32]
+- System selects transcription provider from environment configuration.[file:24][file:28]
+- System supports local Whisper/faster-whisper as the free baseline.
+- System supports AssemblyAI as an optional provider.
+- System enforces free-user video limits using environment configuration.[file:19][file:23]
+- System generates SRT per target language.[file:25]
+- System generates downloadable captioned video with visible subtitles burned into the video.[file:26]
+- User can access all generated outputs in history.[file:31]
+- Admin can inspect processing activity.[file:29]
 
 ## Non-functional requirements
-- Maintainability through modular services.
-- Reliability through explicit workflow states.
-- Usability through visible progress and error messaging.[file:32]
-- Traceability from requirement to phase and file.
-- Incremental migration without unnecessary rewrite.
+- No mandatory paid API for baseline operation.
+- Provider choice should not require route rewrites.
+- Configuration must be documented.
+- File artifacts must be traceable and recoverable.
+- Existing Flask foundation should be reused when practical.[file:19]
 
-## Out-of-scope until later
-- Full real-time collaboration.
-- Complex team workspaces.
-- Deep analytics redesign.
-- Full microservice split.
+## Product rules
+- Single style, multiple languages.
+- Free limit from env.
+- Provider from env.
+- Burned-caption video is a core deliverable.

@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
+from config import Config
 from models import db, User
 import re
 
@@ -133,7 +134,8 @@ def user_status():
         'username': current_user.username,
         'email': current_user.email,
         'videos_processed': current_user.get_video_count(),
-        'videos_remaining': 2 - current_user.get_video_count() if not current_user.is_premium else 'unlimited',
+        'videos_remaining': max(Config.FREE_USER_VIDEO_LIMIT - current_user.get_video_count(), 0) if not current_user.is_premium else 'unlimited',
         'is_premium': current_user.is_premium,
+        'free_user_video_limit': Config.FREE_USER_VIDEO_LIMIT,
         'can_process': current_user.can_process_video()
     })

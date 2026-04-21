@@ -1,42 +1,48 @@
-# TODO
+# TODO - v3 Features Included
 
-## Phase 0 - Discovery and stabilization
-- [ ] Review the previous codebase structure and confirm all existing routes, services, models, and UI pages.[file:19][file:23][file:28][file:32]
-- [ ] Mark reusable modules versus replaceable modules.
-- [ ] Identify hard dependencies on Gemini transcription.[file:28]
-- [ ] Confirm current database schema and migration risk.[file:23]
-- [ ] Document all external configuration variables from config and env files.[file:21][file:18]
+## Phase 0 - Analyze current system
+- [x] Audit where current code assumes one language only.[file:19][file:32]
+- [x] Audit where current free-user limit is hardcoded.[file:19][file:23]
+- [x] Audit current transcription engine coupling to Gemini.[file:28]
+- [x] Audit current media output path for SRT-only vs video output.[file:25][file:26]
 
-## Phase 1 - Requirements and architecture
-- [ ] Freeze the V1 target scope.
-- [ ] Define actors, major use cases, and system boundaries from the previous product vision.[file:16][file:22]
-- [ ] Decide target services: STT, LLM rewrite, video rendering, storage, auth.
-- [ ] Define updated module structure.
-- [ ] Define API contracts for upload, transcript retrieval, editing, export, and preview.
+## Phase 1 - Freeze revised requirements
+- [x] Confirm single-style, multi-language workflow.
+- [x] Confirm env-based free-user limit.
+- [x] Confirm env-based provider selection.
+- [x] Confirm burned-caption video as mandatory output.
 
-## Phase 2 - Backend refactor
-- [ ] Replace old transcription service abstraction with a provider-based service layer.[file:28]
-- [ ] Refactor processing pipeline in `app` flow into orchestration methods.[file:19]
-- [ ] Introduce transcript segment persistence.
-- [ ] Keep SRT generation isolated in formatter/export service.[file:25]
-- [ ] Add preview-render pipeline hooks in video processor.[file:26]
+## Phase 2 - Configuration and provider refactor
+- [x] Add env-driven provider config.
+- [x] Add Whisper/faster-whisper provider.
+- [x] Add AssemblyAI provider.
+- [x] Remove direct dependency on Gemini-only transcription flow.[file:28]
 
-## Phase 3 - Frontend editor flow
-- [x] Convert preview-only result flow into transcript editor UI.[file:32]
-- [x] Add editable segment timeline.
-- [x] Add status indicators for transcript, styled captions, export, preview.
-- [x] Keep existing upload and premium gating behavior unless intentionally changed.[file:32]
+## Phase 3 - Data and workflow changes
+- [x] Support multiple target languages in one job.
+- [x] Track style once, language many.
+- [x] Add transcript/output records per language.
+- [x] Make history reflect multi-output jobs.
 
-## Phase 4 - Integration and QA
-- [x] Validate upload to transcript flow.
-- [x] Validate transcript edit to SRT generation.
-- [x] Validate preview rendering.
-- [x] Validate history and dashboard compatibility.[file:29][file:31]
-- [x] Validate error handling and rollback for failed processing.
+## Phase 4 - Usage limit redesign
+- [x] Replace hardcoded free limit with env config.[file:19][file:23]
+- [x] Ensure UI banner reads configured limit.[file:32]
+- [x] Ensure process checks match configured limit.
 
-## Phase 5 - Hardening
-- [x] Add tests for core services.
-- [x] Add structured logging.
-- [x] Add migration notes and rollback notes.
-- [x] Optimize file cleanup and job lifecycle management.[file:19][file:26]
-- [x] Update README and delivery documents.[file:22]
+## Phase 5 - Captioned video output
+- [ ] Generate SRT for each target language.[file:25]
+- [ ] Burn selected SRT captions into the uploaded video.[file:26]
+- [ ] Save downloadable captioned video artifacts.
+- [ ] Preserve original and generated file relationships.
+
+## Phase 6 - UI alignment
+- [ ] Change language selection from single select to multi-select.[file:32]
+- [ ] Restrict style selection to one chosen style per run if required by product rule.[file:32]
+- [ ] Add provider-selection or provider-display behavior if exposed in UI.
+- [ ] Add captioned-video download actions.
+
+## Phase 7 - Hardening
+- [ ] Add tests for multi-language jobs.
+- [ ] Add tests for env-driven limits.
+- [ ] Add tests for provider switching.
+- [ ] Add tests for burned-video generation.
