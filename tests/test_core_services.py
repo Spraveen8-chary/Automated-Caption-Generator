@@ -17,6 +17,7 @@ from config import Config
 from models import db, PaymentRequest, User, VideoProcessing, TranscriptJob
 from repositories.processing_repository import ProcessingRepository
 from repositories.transcript_repository import TranscriptRepository
+from services.admin_database_service import admin_database_bp
 from services.export_service import ExportService
 from services.upload_service import UploadService
 from services.style_service import StyleService
@@ -482,6 +483,156 @@ class CoreServiceTests(unittest.TestCase):
         self.assertEqual(result['segments'][0]['text'], 'bonjour')
         self.assertEqual(result['text'], 'bonjour')
 
+    def test_build_transcription_provider_auto_prefers_assemblyai_when_available(self):
+        fake_assemblyai_module = ModuleType('assemblyai')
+        fake_assemblyai_module.settings = SimpleNamespace(api_key=None)
+
+        class FakeTranscriptionConfig:
+            def __init__(self, language_code=None):
+                self.language_code = language_code
+
+        class FakeAssemblyAIResult:
+            def __init__(self):
+                self.text = 'hola'
+                self.audio_duration = 1.0
+                self.error = None
+                self.segments = [SimpleNamespace(start=0.0, end=1.0, text='hola')]
+
+        class FakeTranscriber:
+            def transcribe(self, audio_path, config=None):
+                return FakeAssemblyAIResult()
+
+        fake_assemblyai_module.TranscriptionConfig = FakeTranscriptionConfig
+        fake_assemblyai_module.Transcriber = FakeTranscriber
+
+        fake_whisper_module = ModuleType('whisper')
+        fake_whisper_module.load_model = lambda model_name: self.fail('Whisper should not be selected when AssemblyAI is available')
+
+        with patch.dict(sys.modules, {'assemblyai': fake_assemblyai_module, 'whisper': fake_whisper_module}), patch(
+            'services.transcription_provider.importlib.util.find_spec',
+            side_effect=lambda name: object() if name in {'assemblyai', 'whisper'} else None,
+        ):
+            provider = build_transcription_provider(
+                provider_name='auto',
+                google_api_key='unused',
+                whisper_model='tiny',
+                assemblyai_api_key='assembly-key',
+            )
+
+        self.assertIsInstance(provider, AssemblyAITranscriptionProvider)
+
+    def test_build_transcription_provider_auto_uses_assemblyai_when_api_key_is_present(self):
+        with patch('services.transcription_provider.importlib.util.find_spec', side_effect=lambda name: None):
+            provider = build_transcription_provider(
+                provider_name='auto',
+                google_api_key='unused',
+                whisper_model='tiny',
+                assemblyai_api_key='assembly-key',
+            )
+
+        self.assertIsInstance(provider, AssemblyAITranscriptionProvider)
+
+    def test_build_transcription_provider_auto_uses_assemblyai_http_fallback(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        def fake_post(url, headers=None, data=None, json=None, timeout=None):
+            if url.endswith('/upload'):
+                return FakeResponse({'upload_url': 'https://example.com/audio.mp3'})
+            if url.endswith('/transcript'):
+                self.assertTrue(json.get('language_detection'))
+                self.assertNotIn('language_code', json)
+                return FakeResponse({'id': 'abc123'})
+            raise AssertionError(f'Unexpected POST url: {url}')
+
+        def fake_get(url, headers=None, timeout=None):
+            return FakeResponse({
+                'status': 'completed',
+                'text': 'hello world',
+                'audio_duration': 2.0,
+                'segments': [
+                    {'start': 0.0, 'end': 2.0, 'text': 'hello world'},
+                ],
+            })
+
+        with patch('services.transcription_provider.importlib.util.find_spec', side_effect=lambda name: None), patch(
+            'services.transcription_provider.requests.post',
+            side_effect=fake_post,
+        ), patch(
+            'services.transcription_provider.requests.get',
+            side_effect=fake_get,
+        ):
+            provider = build_transcription_provider(
+                provider_name='auto',
+                google_api_key='unused',
+                whisper_model='tiny',
+                assemblyai_api_key='assembly-key',
+            )
+
+            self.assertIsInstance(provider, AssemblyAITranscriptionProvider)
+            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_audio:
+                temp_audio.write(b'fake audio')
+                audio_path = temp_audio.name
+
+            try:
+                result = provider.transcribe(audio_path, language='en')
+            finally:
+                os.remove(audio_path)
+
+        self.assertEqual(result['text'], 'hello world')
+        self.assertEqual(result['segments'][0]['text'], 'hello world')
+
+    def test_transcript_service_falls_back_to_whisper_when_assemblyai_fails(self):
+        transcript = {
+            'text': 'hello world',
+            'duration': 2.0,
+            'segments': [
+                {'start': 0.0, 'end': 2.0, 'text': 'hello world'},
+            ],
+        }
+
+        failing_provider = SimpleNamespace(
+            provider_name='assemblyai',
+            transcribe=MagicMock(side_effect=ProviderConfigurationError('AssemblyAI request failed (400): bad request')),
+        )
+        fallback_provider = SimpleNamespace(
+            provider_name='whisper',
+            transcribe=MagicMock(return_value=transcript),
+        )
+        fake_video_processor = FakeVideoProcessor(self.tempdir.name)
+        transcript_repository = TranscriptRepository()
+        processing_repository = ProcessingRepository()
+
+        with patch.object(Config, 'WHISPER_MODEL', 'tiny'), patch.object(Config, 'ASSEMBLYAI_API_KEY', 'assembly-key'), patch(
+            'services.transcript_service.build_transcription_provider',
+            return_value=fallback_provider,
+        ) as build_provider:
+            service = TranscriptService(
+                self.tempdir.name,
+                api_key='test-key',
+                video_processor=fake_video_processor,
+                transcription_provider=failing_provider,
+                transcript_repository=transcript_repository,
+                processing_repository=processing_repository,
+            )
+            transcript_result, provider_used = service._transcribe_language('/tmp/audio.mp3', 'te', failing_provider)
+
+        build_provider.assert_called_once_with(
+            provider_name='whisper',
+            google_api_key='test-key',
+            whisper_model='tiny',
+            assemblyai_api_key='assembly-key',
+        )
+        self.assertEqual(provider_used, 'whisper')
+        self.assertEqual(transcript_result['text'], 'hello world')
+
     def test_transcript_repository_persists_and_updates_segments(self):
         repository = TranscriptRepository()
         transcript = {
@@ -619,6 +770,104 @@ class CoreServiceTests(unittest.TestCase):
         self.assertEqual(result['burned_video_filename'], 'clip_meme_en_captions.mp4')
         self.assertEqual(result['burned_video_path'], os.path.join(self.outputdir.name, 'clip_meme_en_captions.mp4'))
         fake_clip.close.assert_called_once()
+
+
+class AdminDatabaseRouteTests(unittest.TestCase):
+    def setUp(self):
+        project_root = os.path.dirname(os.path.dirname(__file__))
+        self.app = Flask(__name__, template_folder=os.path.join(project_root, 'templates'))
+        self.app.config.update(
+            TESTING=True,
+            SECRET_KEY='test-secret',
+            SQLALCHEMY_DATABASE_URI='sqlite:///:memory:',
+            SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        )
+        db.init_app(self.app)
+
+        @self.app.route('/admin')
+        def admin_dashboard():
+            return 'admin dashboard'
+
+        login_manager = LoginManager()
+        login_manager.init_app(self.app)
+        login_manager.login_view = 'auth.login'
+        login_manager.user_loader(lambda user_id: db.session.get(User, int(user_id)))
+        self.app.register_blueprint(auth_blueprint, url_prefix='/auth')
+        self.app.register_blueprint(admin_database_bp)
+
+        with self.app.app_context():
+            db.create_all()
+            admin = User(email='admin-test@example.com', username='admin-test', is_admin=True)
+            admin.set_password('password123')
+            db.session.add(admin)
+            db.session.commit()
+            self.admin_id = admin.id
+
+        self.client = self.app.test_client()
+        login_response = self.client.post(
+            '/auth/login',
+            json={'email': 'admin-test@example.com', 'password': 'password123'},
+        )
+        self.assertEqual(login_response.status_code, 200)
+
+    def tearDown(self):
+        with self.app.app_context():
+            db.session.remove()
+            db.drop_all()
+
+    def test_database_browser_lists_tables(self):
+        response = self.client.get('/admin/database/users')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'Database Browser', response.data)
+        self.assertIn(b'Users', response.data)
+
+    def test_database_browser_create_update_and_delete_row(self):
+        create_response = self.client.post(
+            '/admin/database/users/create',
+            data={
+                'email': 'db-user@example.com',
+                'username': 'db-user',
+                'password_hash': 'raw-password-hash',
+                'is_premium': 'on',
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(create_response.status_code, 200)
+
+        with self.app.app_context():
+            created_user = User.query.filter_by(email='db-user@example.com').first()
+            self.assertIsNotNone(created_user)
+            created_user_id = created_user.id
+
+        update_response = self.client.post(
+            f'/admin/database/users/{created_user_id}/update',
+            data={
+                'email': 'db-user-updated@example.com',
+                'username': 'db-user-updated',
+                'password_hash': 'updated-hash',
+                'is_premium': 'on',
+                'is_admin': 'on',
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(update_response.status_code, 200)
+
+        with self.app.app_context():
+            updated_user = db.session.get(User, created_user_id)
+            self.assertEqual(updated_user.email, 'db-user-updated@example.com')
+            self.assertEqual(updated_user.username, 'db-user-updated')
+            self.assertTrue(updated_user.is_premium)
+            self.assertTrue(updated_user.is_admin)
+
+        delete_response = self.client.post(
+            f'/admin/database/users/{created_user_id}/delete',
+            follow_redirects=True,
+        )
+        self.assertEqual(delete_response.status_code, 200)
+
+        with self.app.app_context():
+            deleted_user = db.session.get(User, created_user_id)
+            self.assertIsNone(deleted_user)
 
 
 if __name__ == '__main__':

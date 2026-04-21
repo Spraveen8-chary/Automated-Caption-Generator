@@ -1,11 +1,3 @@
-<img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
-
-# Hey give me a readme file for this project.
-
-Here’s a professional, clean `README.md` you can use for your Automated Caption Generator SaaS project.
-
-***
-
 # Automated Caption Generator
 
 Effortlessly add accurate, AI-powered captions to your videos in 40+ languages. Built as a ready-to-deploy SaaS web app with multi-user support, advanced admin dashboard, and premium gating.
@@ -156,36 +148,3 @@ Admin users are auto-created on first run if not present.
 
 (C) 2025 Your Name. All Rights Reserved.
 Not for commercial use without permission.
-
-***
-
-**Made with ❤️ for content creators.**
-If you use this, star the repo and consider contributing!
-
-***
-
-Let me know if you want badges, GIFs, or API docs sections in your README!
-<span style="display:none">[^1][^10][^2][^3][^4][^5][^6][^7][^8][^9]</span>
-
-<div align="center">⁂</div>
-
-[^1]: https://www.reddit.com/r/flask/comments/1ekjvap/i_made_a_quickstart_template_for_flask_apps/
-
-[^2]: https://gitlab.doc.ic.ac.uk/paas-templates/python-flask-template/-/blob/master/README.md
-
-[^3]: https://realpython.com/readme-python-project/
-
-[^4]: https://www.pythonanywhere.com/forums/topic/33309/
-
-[^5]: https://cubettech.com/resources/blog/the-essential-readme-file-elevating-your-project-with-a-comprehensive-document/
-
-[^6]: https://jamesrwilliams.ca/posts/building-a-custom-readme-badge-image-api/
-
-[^7]: https://gitlab.comp.dkit.ie/D00267164/sa-youvid/-/blob/readme-update/README.md
-
-[^8]: https://vsupalov.com/flask-app-starting-project/
-
-[^9]: https://code.usgs.gov/cdi/posit-team/posit-python/-/blob/14-flask-content-broken/README.md
-
-[^10]: https://www.youtube.com/watch?v=Rtpu2cWz7W8
-

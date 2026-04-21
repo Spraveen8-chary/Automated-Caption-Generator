@@ -7,7 +7,7 @@ from repositories.transcript_repository import TranscriptRepository
 from services.export_service import ExportService
 from services.preview_service import PreviewService
 from services.style_service import StyleService
-from services.transcription_provider import build_transcription_provider
+from services.transcription_provider import ProviderConfigurationError, build_transcription_provider
 from utils.video_processor import VideoProcessor
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class TranscriptService:
         self.transcription_provider_api_key = api_key
         self.transcription_provider_whisper_model = Config.WHISPER_MODEL
         self.transcription_provider_assemblyai_api_key = Config.ASSEMBLYAI_API_KEY
+        self._whisper_fallback_provider = None
         self.style_service = style_service or StyleService(gemini_api_key=Config.GOOGLE_API_KEY)
         self.export_service = export_service or ExportService(self.output_folder)
         self.transcript_repository = transcript_repository or TranscriptRepository()
@@ -54,6 +55,16 @@ class TranscriptService:
                 assemblyai_api_key=self.transcription_provider_assemblyai_api_key,
             )
         return self.transcription_provider
+
+    def _get_whisper_fallback_provider(self):
+        if self._whisper_fallback_provider is None:
+            self._whisper_fallback_provider = build_transcription_provider(
+                provider_name='whisper',
+                google_api_key=self.transcription_provider_api_key,
+                whisper_model=self.transcription_provider_whisper_model,
+                assemblyai_api_key=self.transcription_provider_assemblyai_api_key,
+            )
+        return self._whisper_fallback_provider
 
     def process_video(self, user, filename, original_filename=None, style=None, styles=None, languages=None, language='en'):
         original_filename = original_filename or filename
@@ -113,14 +124,40 @@ class TranscriptService:
             provider = self._get_transcription_provider()
             provider_name = getattr(provider, 'provider_name', 'whisper')
 
-            language_outputs = []
-            for target_language in target_languages:
-                transcript, provider_used = self._transcribe_language(audio_path, target_language, provider)
-                language_outputs.append({
-                    'language_code': target_language,
+            if provider_name in {'whisper', 'assemblyai'}:
+                processing_note = None
+                if len(target_languages) > 1:
+                    processing_note = (
+                        f'{provider_name.title()} transcribes one detected-language output; '
+                        'extra selected languages were ignored.'
+                    )
+                    logger.warning(
+                        "transcript.multilanguage.not_supported",
+                        extra={
+                            'provider': provider_name,
+                            'requested_languages': target_languages,
+                            'user_id': user.id,
+                            'source_filename': filename,
+                        },
+                    )
+
+                transcript, provider_used = self._transcribe_language(audio_path, None, provider)
+                detected_language = transcript.get('language') or target_languages[0] or 'en'
+                target_languages = [detected_language]
+                language_outputs = [{
+                    'language_code': detected_language,
                     'transcript': transcript,
                     'provider_used': provider_used,
-                })
+                }]
+            else:
+                language_outputs = []
+                for target_language in target_languages:
+                    transcript, provider_used = self._transcribe_language(audio_path, target_language, provider)
+                    language_outputs.append({
+                        'language_code': target_language,
+                        'transcript': transcript,
+                        'provider_used': provider_used,
+                    })
 
             job_provider = self._summarize_job_provider(language_outputs, provider_name)
 
@@ -184,7 +221,11 @@ class TranscriptService:
                 'plan_label': plan_label_getter() if callable(plan_label_getter) else ('Premium' if getattr(user, 'is_premium', False) else 'Free'),
                 'free_user_video_limit': self.free_user_video_limit,
                 'transcription_provider': job_provider,
-                'message': 'Transcript generated successfully',
+                'message': (
+                    processing_note + ' '
+                    if provider_name in {'whisper', 'assemblyai'} and len(deduped_languages) > 1
+                    else ''
+                ) + 'Transcript generated successfully',
             }
         finally:
             # Keep the uploaded source video available for caption burning and downloadable history.
@@ -193,8 +234,27 @@ class TranscriptService:
     def _transcribe_language(self, audio_path, language, provider=None):
         """Transcribe audio with the selected transcription backend."""
         active_provider = provider or self._get_transcription_provider()
-        transcript = active_provider.transcribe(audio_path, language)
-        return transcript, getattr(active_provider, 'provider_name', 'whisper')
+        provider_name = getattr(active_provider, 'provider_name', 'whisper')
+
+        try:
+            transcript = active_provider.transcribe(audio_path, language)
+            return transcript, provider_name
+        except ProviderConfigurationError as error:
+            if provider_name == 'whisper':
+                raise
+
+            logger.warning(
+                "transcript.provider.fallback",
+                extra={
+                    'provider': provider_name,
+                    'language': language,
+                    'error': str(error),
+                },
+            )
+
+            fallback_provider = self._get_whisper_fallback_provider()
+            transcript = fallback_provider.transcribe(audio_path, language)
+            return transcript, getattr(fallback_provider, 'provider_name', 'whisper')
 
     @staticmethod
     def _summarize_job_provider(language_outputs, default_provider):

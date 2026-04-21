@@ -1,5 +1,8 @@
 import importlib.util
+import time
 from abc import ABC, abstractmethod
+
+import requests
 
 from utils.transcription import TranscriptionService as GeminiTranscriptionService
 
@@ -97,22 +100,42 @@ class WhisperTranscriptionProvider(TranscriptionProvider):
 
     def transcribe(self, audio_path, language='en'):
         model = self._ensure_model()
+        requested_language = (language or '').strip().lower() if isinstance(language, str) else language
+        auto_detect_language = not requested_language or requested_language == 'auto'
 
         if self._backend_name == 'whisper':
-            result = model.transcribe(audio_path, language=language)
+            transcribe_kwargs = {'fp16': False}
+            if not auto_detect_language:
+                transcribe_kwargs['language'] = language
+            try:
+                result = model.transcribe(audio_path, **transcribe_kwargs)
+            except TypeError:
+                transcribe_kwargs.pop('fp16', None)
+                try:
+                    result = model.transcribe(audio_path, **transcribe_kwargs)
+                except TypeError:
+                    if auto_detect_language:
+                        result = model.transcribe(audio_path)
+                    else:
+                        result = model.transcribe(audio_path, language=language)
             segments = self._normalize_segments(result.get('segments', []))
             text = (result.get('text') or ' '.join(segment['text'] for segment in segments)).strip()
+            detected_language = result.get('language') or language or 'en'
         else:
-            segment_iter, info = model.transcribe(audio_path, language=language)
+            if auto_detect_language:
+                segment_iter, info = model.transcribe(audio_path)
+            else:
+                segment_iter, info = model.transcribe(audio_path, language=language)
             segments = self._normalize_segments(segment_iter)
             text = ' '.join(segment['text'] for segment in segments).strip()
             if not text:
                 text = getattr(info, 'language', language) or language
+            detected_language = getattr(info, 'language', None) or language or 'en'
 
         duration = segments[-1]['end'] if segments else 0
         return {
             'text': text,
-            'language': language,
+            'language': detected_language,
             'duration': duration,
             'segments': segments,
         }
@@ -122,6 +145,7 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
     """Transcribe audio through the AssemblyAI API."""
 
     provider_name = 'assemblyai'
+    base_url = 'https://api.assemblyai.com'
 
     def __init__(self, api_key):
         if not api_key:
@@ -129,15 +153,20 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
                 'ASSEMBLYAI_API_KEY is required when TRANSCRIPTION_PROVIDER=assemblyai'
             )
 
-        if importlib.util.find_spec('assemblyai') is None:
-            raise ProviderConfigurationError(
-                'TRANSCRIPTION_PROVIDER=assemblyai requires the assemblyai package'
-            )
+        self.api_key = api_key
+        self._mode = 'http'
+        self._aai = None
 
-        import assemblyai as aai
+        if importlib.util.find_spec('assemblyai') is not None:
+            try:
+                import assemblyai as aai
 
-        aai.settings.api_key = api_key
-        self._aai = aai
+                aai.settings.api_key = api_key
+                self._aai = aai
+                self._mode = 'sdk'
+            except Exception:
+                self._aai = None
+                self._mode = 'http'
 
     @staticmethod
     def _read_field(segment, field_name, default=None):
@@ -182,33 +211,124 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
 
         return []
 
-    def transcribe(self, audio_path, language='en'):
-        transcriber = self._aai.Transcriber()
-        config = None
-        config_cls = getattr(self._aai, 'TranscriptionConfig', None)
-        if config_cls is not None:
-            config_kwargs = {}
-            if language:
-                config_kwargs['language_code'] = language
-            try:
-                config = config_cls(**config_kwargs)
-            except TypeError:
-                config = None
+    def _http_headers(self):
+        return {
+            'authorization': self.api_key,
+        }
 
+    @staticmethod
+    def _response_error(response, fallback_message):
+        details = fallback_message
         try:
-            result = transcriber.transcribe(audio_path, config=config) if config is not None else transcriber.transcribe(audio_path)
-        except TypeError:
-            result = transcriber.transcribe(audio_path)
+            payload = response.json()
+            if isinstance(payload, dict):
+                details = payload.get('error') or payload.get('message') or fallback_message
+        except ValueError:
+            body = (response.text or '').strip()
+            if body:
+                details = body
 
-        if self._read_field(result, 'error', None):
-            raise ProviderConfigurationError(self._read_field(result, 'error', 'AssemblyAI transcription failed'))
+        raise ProviderConfigurationError(
+            f"AssemblyAI request failed ({getattr(response, 'status_code', 'unknown')}): {details}"
+        )
+
+    @staticmethod
+    def _response_ok(response):
+        ok = getattr(response, 'ok', None)
+        if ok is not None:
+            return bool(ok)
+
+        status_code = getattr(response, 'status_code', None)
+        if status_code is None:
+            return True
+        return 200 <= int(status_code) < 300
+
+    def _upload_audio(self, audio_path):
+        with open(audio_path, 'rb') as audio_file:
+            response = requests.post(
+                f'{self.base_url}/v2/upload',
+                headers=self._http_headers(),
+                data=audio_file,
+                timeout=120,
+            )
+        if not self._response_ok(response):
+            self._response_error(response, 'AssemblyAI upload failed')
+        payload = response.json()
+        upload_url = payload.get('upload_url')
+        if not upload_url:
+            raise ProviderConfigurationError('AssemblyAI upload did not return an upload_url')
+        return upload_url
+
+    def _create_transcript(self, audio_url):
+        data = {
+            'audio_url': audio_url,
+            'language_detection': True,
+            'speech_models': ['universal-2'],
+        }
+
+        response = requests.post(
+            f'{self.base_url}/v2/transcript',
+            headers=self._http_headers(),
+            json=data,
+            timeout=120,
+        )
+        if not self._response_ok(response):
+            self._response_error(response, 'AssemblyAI transcript creation failed')
+        payload = response.json()
+        transcript_id = payload.get('id')
+        if not transcript_id:
+            raise ProviderConfigurationError('AssemblyAI did not return a transcript id')
+        return transcript_id
+
+    def _poll_transcript(self, transcript_id):
+        polling_endpoint = f'{self.base_url}/v2/transcript/{transcript_id}'
+        while True:
+            response = requests.get(
+                polling_endpoint,
+                headers=self._http_headers(),
+                timeout=120,
+            )
+            if not self._response_ok(response):
+                self._response_error(response, 'AssemblyAI transcript polling failed')
+            payload = response.json()
+            status = payload.get('status')
+            if status == 'completed':
+                return payload
+            if status == 'error':
+                raise ProviderConfigurationError(payload.get('error') or 'AssemblyAI transcription failed')
+            time.sleep(3)
+
+    def transcribe(self, audio_path, language='en'):
+        try:
+            if self._mode == 'sdk':
+                transcriber = self._aai.Transcriber()
+                try:
+                    result = transcriber.transcribe(audio_path)
+                except TypeError:
+                    result = transcriber.transcribe(audio_path, config=None)
+
+                if self._read_field(result, 'error', None):
+                    raise ProviderConfigurationError(self._read_field(result, 'error', 'AssemblyAI transcription failed'))
+
+            else:
+                upload_url = self._upload_audio(audio_path)
+                transcript_id = self._create_transcript(upload_url)
+                result = self._poll_transcript(transcript_id)
+        except requests.RequestException as error:
+            raise ProviderConfigurationError(f'AssemblyAI request failed: {error}') from error
 
         segments = self._normalize_segments(result)
         text = self._read_field(result, 'text', '') or ' '.join(segment['text'] for segment in segments)
         duration = segments[-1]['end'] if segments else float(self._read_field(result, 'audio_duration', 0.0) or 0.0)
+        detected_language = (
+            self._read_field(result, 'language_code', None)
+            or self._read_field(result, 'language', None)
+            or language
+            or 'en'
+        )
         return {
             'text': text.strip(),
-            'language': language,
+            'language': detected_language,
             'duration': duration,
             'segments': segments,
         }
@@ -219,15 +339,15 @@ def build_transcription_provider(provider_name, google_api_key=None, whisper_mod
     normalized_name = (provider_name or 'auto').strip().lower()
 
     if normalized_name in {'', 'auto'}:
+        if assemblyai_api_key:
+            return AssemblyAITranscriptionProvider(assemblyai_api_key)
+
         if importlib.util.find_spec('whisper') is not None or importlib.util.find_spec('faster_whisper') is not None:
             return WhisperTranscriptionProvider(model_name=whisper_model)
 
-        if assemblyai_api_key and importlib.util.find_spec('assemblyai') is not None:
-            return AssemblyAITranscriptionProvider(assemblyai_api_key)
-
         raise ProviderConfigurationError(
             'No transcription backend is available. Install whisper or faster-whisper, '
-            'or configure TRANSCRIPTION_PROVIDER=assemblyai with the AssemblyAI SDK installed.'
+            'or configure TRANSCRIPTION_PROVIDER=assemblyai with the AssemblyAI SDK installed and an API key.'
         )
 
     if normalized_name == 'gemini':

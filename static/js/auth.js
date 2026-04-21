@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     body: JSON.stringify(data)
                 });
                 
-                const result = await response.json();
+                const result = await readJsonResponse(response) || {};
                 
                 if (response.ok) {
                     // Success - redirect
@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     body: JSON.stringify(data)
                 });
                 
-                const result = await response.json();
+                const result = await readJsonResponse(response) || {};
                 
                 if (response.ok) {
                     // Success - redirect
@@ -118,6 +118,19 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+async function readJsonResponse(response) {
+    const text = await response.text();
+    if (!text) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        return { raw: text };
+    }
+}
 
 function showError(message) {
     const alert = document.createElement('div');

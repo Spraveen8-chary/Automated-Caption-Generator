@@ -21,6 +21,7 @@
                 <div class="user-info">
                     <span class="user-name">👤 {{ current_user.username }}</span>
                     <button type="button" class="btn btn--sm btn--outline theme-toggle" data-theme-toggle>Dark Mode</button>
+                    <a href="{{ url_for('admin_database.table_view', table_name='users') }}" class="btn btn--sm btn--outline">View Database</a>
                     <a href="{{ url_for('index') }}" class="btn btn--sm btn--outline">Main App</a>
                     <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--outline">Logout</a>
                 </div>
@@ -340,9 +341,17 @@
 
         async function handlePaymentDecision(endpoint) {
             const response = await fetch(endpoint, { method: 'POST' });
-            const result = await response.json();
+            const text = await response.text();
+            let result = {};
+            if (text) {
+                try {
+                    result = JSON.parse(text);
+                } catch (error) {
+                    result = { error: text };
+                }
+            }
             if (!response.ok) {
-                throw new Error(result.error || 'Action failed');
+                throw new Error((result && (result.error || result.raw)) || 'Action failed');
             }
             window.location.reload();
         }

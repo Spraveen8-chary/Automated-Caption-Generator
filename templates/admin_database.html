@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Browser - Caption Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <nav class="navbar admin-navbar">
+        <div class="navbar-container">
+            <div class="navbar-brand">
+                <h1>ðŸŽ¬ Caption Generator</h1>
+                <span class="admin-badge">Database Browser</span>
+            </div>
+            <div class="navbar-menu">
+                <div class="user-info">
+                    <span class="user-name">ðŸ‘¤ {{ current_user.username }}</span>
+                    <button type="button" class="btn btn--sm btn--outline theme-toggle" data-theme-toggle>Dark Mode</button>
+                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn--sm btn--outline">Admin Dashboard</a>
+                    <a href="{{ main_app_url }}" class="btn btn--sm btn--outline">Main App</a>
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--outline">Logout</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="admin-container database-container">
+        <header class="admin-header fade-in">
+            <h1>Database Browser</h1>
+            <p class="subtitle">Inspect tables, create rows, edit data, and remove records from the admin panel.</p>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-stack fade-in">
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-message--{{ category or 'info' }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <div class="database-layout">
+            <aside class="database-sidebar fade-in">
+                <div class="database-sidebar__header">
+                    <h2>Tables</h2>
+                    <p>Choose a table to inspect.</p>
+                </div>
+
+                <div class="database-table-list">
+                    {% for table in tables %}
+                        <a
+                            class="database-table-link {% if table.name == selected.name %}database-table-link--active{% endif %}"
+                            href="{{ url_for('admin_database.table_view', table_name=table.name) }}"
+                        >
+                            <div>
+                                <strong>{{ table.label }}</strong>
+                                <div class="database-table-link__meta">{{ table.model_name }}</div>
+                            </div>
+                            <span class="database-table-link__count">{{ table.count }}</span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </aside>
+
+            <main class="database-main fade-in">
+                <section class="database-card">
+                    <div class="section-header">
+                        <div>
+                            <h2>{{ selected.label }}</h2>
+                            <p>{{ selected.model_name }} table | {{ selected.count }} rows</p>
+                        </div>
+                        <span class="plan-pill">Primary key: {{ selected.pk_name }}</span>
+                    </div>
+
+                    <div class="database-note">
+                        System-managed fields are shown in the table below. The form only edits fields that are safe to change directly.
+                    </div>
+                </section>
+
+                <section class="database-card">
+                    <div class="section-header">
+                        <div>
+                            <h3>Create New Row</h3>
+                            <p>Insert a new record into {{ selected.label }}.</p>
+                        </div>
+                    </div>
+
+                    <form method="post" action="{{ url_for('admin_database.create_row', table_name=selected.name) }}" class="database-form">
+                        <div class="db-form-grid">
+                            {% for field in selected.create_fields %}
+                                <label class="db-field">
+                                    <span>{{ field.label }}</span>
+                                    {% if field.widget == 'textarea' %}
+                                        <textarea
+                                            name="{{ field.name }}"
+                                            class="db-input db-textarea"
+                                            placeholder="{{ field.placeholder }}"
+                                        ></textarea>
+                                    {% elif field.widget == 'checkbox' %}
+                                        <div class="db-checkbox">
+                                            <input type="checkbox" name="{{ field.name }}">
+                                            <span>{{ field.label }}</span>
+                                        </div>
+                                    {% else %}
+                                        <input
+                                            type="{{ field.widget }}"
+                                            name="{{ field.name }}"
+                                            class="db-input"
+                                            placeholder="{{ field.placeholder }}"
+                                            {% if field.required %}required{% endif %}
+                                        >
+                                    {% endif %}
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <div class="database-form__actions">
+                            <button type="submit" class="btn btn--primary">Create Row</button>
+                        </div>
+                    </form>
+                </section>
+
+                {% if selected.edit_record %}
+                    <section class="database-card database-card--edit">
+                        <div class="section-header">
+                            <div>
+                                <h3>Edit Row #{{ selected.edit_record.pk_value }}</h3>
+                                <p>Update the selected record in {{ selected.label }}.</p>
+                            </div>
+                        </div>
+
+                        <form method="post" action="{{ url_for('admin_database.update_row', table_name=selected.name, record_id=selected.edit_record.pk_value) }}" class="database-form">
+                            <div class="db-form-grid">
+                                {% for field in selected.edit_fields %}
+                                    <label class="db-field">
+                                        <span>{{ field.label }}</span>
+                                        {% if field.widget == 'textarea' %}
+                                            <textarea
+                                                name="{{ field.name }}"
+                                                class="db-input db-textarea"
+                                                placeholder="{{ field.placeholder }}"
+                                            >{{ field.value }}</textarea>
+                                        {% elif field.widget == 'checkbox' %}
+                                            <div class="db-checkbox">
+                                                <input type="checkbox" name="{{ field.name }}" {% if field.checked %}checked{% endif %}>
+                                                <span>{{ field.label }}</span>
+                                            </div>
+                                        {% else %}
+                                            <input
+                                                type="{{ field.widget }}"
+                                                name="{{ field.name }}"
+                                                class="db-input"
+                                                value="{{ field.value }}"
+                                                placeholder="{{ field.placeholder }}"
+                                                {% if field.required %}required{% endif %}
+                                            >
+                                        {% endif %}
+                                    </label>
+                                {% endfor %}
+                            </div>
+                            <div class="database-form__actions">
+                                <button type="submit" class="btn btn--secondary">Save Changes</button>
+                                <a href="{{ url_for('admin_database.table_view', table_name=selected.name) }}" class="btn btn--outline">Cancel</a>
+                            </div>
+                        </form>
+                    </section>
+                {% endif %}
+
+                <section class="database-card">
+                    <div class="section-header">
+                        <div>
+                            <h3>Rows</h3>
+                            <p>All records in {{ selected.label }}.</p>
+                        </div>
+                    </div>
+
+                    <div class="admin-table-container">
+                        <table class="admin-table database-table">
+                            <thead>
+                                <tr>
+                                    {% for column in selected.columns %}
+                                        <th>{{ column.name }}</th>
+                                    {% endfor %}
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if selected.records %}
+                                    {% for record in selected.records %}
+                                        <tr>
+                                            {% for column in selected.columns %}
+                                                <td>
+                                                    <div class="database-cell">{{ record.values[column.name] }}</div>
+                                                </td>
+                                            {% endfor %}
+                                            <td>
+                                                <div class="database-row-actions">
+                                                    <a href="{{ url_for('admin_database.table_view', table_name=selected.name, edit=record.pk_value) }}" class="btn btn--xs btn--outline">Edit</a>
+                                                    <form method="post" action="{{ url_for('admin_database.delete_row', table_name=selected.name, record_id=record.pk_value) }}" onsubmit="return confirm('Delete this row?');">
+                                                        <button type="submit" class="btn btn--xs btn--primary">Delete</button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="{{ selected.columns|length + 1 }}">
+                                            <div class="empty-state">
+                                                <p>No rows found in this table.</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+</body>
+</html>

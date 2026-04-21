@@ -29,6 +29,19 @@ function getConfiguredFreeLimit(data = {}) {
     return 0;
 }
 
+async function readJsonResponse(response) {
+    const text = await response.text();
+    if (!text) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        return { raw: text };
+    }
+}
+
 // DOM elements
 const uploadArea = document.getElementById('uploadArea');
 const videoInput = document.getElementById('videoInput');
@@ -223,9 +236,12 @@ async function submitPaymentRequest() {
             })
         });
 
-        const result = await response.json();
+        const result = await readJsonResponse(response);
+        if (!result) {
+            throw new Error('Payment request returned an empty response');
+        }
         if (!response.ok) {
-            throw new Error(result.error || 'Could not submit payment request');
+            throw new Error((result && result.error) || 'Could not submit payment request');
         }
 
         appConfig.paymentRequest = result.payment_request || appConfig.paymentRequest;
@@ -254,6 +270,10 @@ async function submitPaymentRequest() {
 
 function initializePaymentModal() {
     updatePaymentModalState();
+}
+
+if (markPaidBtn) {
+    markPaidBtn.addEventListener('click', submitPaymentRequest);
 }
 
 window.openPaymentModal = openPaymentModal;
@@ -376,10 +396,13 @@ async function processVideo() {
         formData.append('video', state.uploadedFile);
         const uploadResponse = await fetch('/upload', { method: 'POST', body: formData });
         if (!uploadResponse.ok) {
-            const error = await uploadResponse.json();
-            throw new Error(error.error || 'Upload failed');
+            const error = await readJsonResponse(uploadResponse);
+            throw new Error((error && (error.error || error.raw)) || 'Upload failed');
         }
-        const uploadData = await uploadResponse.json();
+        const uploadData = await readJsonResponse(uploadResponse);
+        if (!uploadData) {
+            throw new Error('Upload returned an empty response');
+        }
         state.uploadedFilename = uploadData.filename;
         updateProgress(35, 'Video uploaded. Transcribing...');
 
@@ -396,11 +419,14 @@ async function processVideo() {
             })
         });
         if (!processResponse.ok) {
-            const error = await processResponse.json();
-            throw new Error(error.error || 'Processing failed');
+            const error = await readJsonResponse(processResponse);
+            throw new Error((error && (error.error || error.raw)) || 'Processing failed');
         }
 
-        const processData = await processResponse.json();
+        const processData = await readJsonResponse(processResponse);
+        if (!processData) {
+            throw new Error('Processing returned an empty response');
+        }
         state.transcriptJobId = processData.transcript_job_id;
         state.transcript = processData.transcript;
         state.languageOutputs = processData.outputs || [];
@@ -410,7 +436,7 @@ async function processVideo() {
         state.latestExport = null;
         updateUsageBanner(processData);
 
-        updateProgress(100, 'Transcript ready!');
+        updateProgress(100, processData.message || 'Transcript ready!');
         setTimeout(() => {
             showTranscriptEditor(processData);
         }, 350);
@@ -566,9 +592,12 @@ async function saveTranscript() {
             body: JSON.stringify({ segments, language_code: state.primaryLanguage })
         });
 
-        const result = await response.json();
+        const result = await readJsonResponse(response);
+        if (!result) {
+            throw new Error('Save returned an empty response');
+        }
         if (!response.ok) {
-            throw new Error(result.error || 'Save failed');
+            throw new Error((result && (result.error || result.raw)) || 'Save failed');
         }
 
         state.transcript = result.transcript;
@@ -594,9 +623,12 @@ async function previewStyles() {
             method: 'POST'
         });
 
-        const result = await response.json();
+        const result = await readJsonResponse(response);
+        if (!result) {
+            throw new Error('Style preview returned an empty response');
+        }
         if (!response.ok) {
-            throw new Error(result.error || 'Style preview failed');
+            throw new Error((result && (result.error || result.raw)) || 'Style preview failed');
         }
 
         renderStylePreviews(result.styles || []);
@@ -684,9 +716,12 @@ async function exportTranscript() {
             })
         });
 
-        const result = await response.json();
+        const result = await readJsonResponse(response);
+        if (!result) {
+            throw new Error('Export returned an empty response');
+        }
         if (!response.ok) {
-            throw new Error(result.error || 'Export failed');
+            throw new Error((result && (result.error || result.raw)) || 'Export failed');
         }
 
         state.latestExport = result;

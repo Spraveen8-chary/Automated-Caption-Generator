@@ -412,7 +412,7 @@
                             </a>
                             <label class="form-label" for="paymentReference">Payment Reference</label>
                             <input type="text" class="form-control" id="paymentReference" placeholder="UTR / screenshot note">
-                            <button class="btn btn--secondary btn--lg btn--full-width" id="markPaidBtn" type="button" onclick="submitPaymentRequest()">
+                            <button class="btn btn--secondary btn--lg btn--full-width" id="markPaidBtn" type="button">
                                 I have paid
                             </button>
                             {% if payment_request and payment_request.status == 'pending' %}

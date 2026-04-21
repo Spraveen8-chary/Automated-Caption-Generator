@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 from config import Config
 from models import db, User, VideoProcessing, PaymentRequest
 from auth import auth as auth_blueprint
+from services.admin_database_service import admin_database_bp
 from repositories.processing_repository import ProcessingRepository
 from repositories.transcript_repository import TranscriptRepository
 from services.style_service import StyleService
@@ -35,6 +36,7 @@ login_manager.login_message = 'Please log in to access this page.'
 
 # Register auth blueprint
 app.register_blueprint(auth_blueprint, url_prefix='/auth')
+app.register_blueprint(admin_database_bp)
 
 # Initialize services
 upload_service = UploadService(
