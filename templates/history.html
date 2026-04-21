@@ -16,6 +16,7 @@
             <div class="navbar-menu">
                 <div class="user-info">
                     <span class="user-name">👤 {{ user.username }}</span>
+                    <button type="button" class="btn btn--sm btn--outline theme-toggle" data-theme-toggle>Dark Mode</button>
                     <a href="{{ url_for('index') }}" class="btn btn--sm btn--outline">New Video</a>
                     <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--secondary">Logout</a>
                 </div>
@@ -37,6 +38,7 @@
                         <th>Video</th>
                         <th>Style</th>
                         <th>Languages</th>
+                        <th>Provider</th>
                         <th>Date</th>
                         <th>Outputs</th>
                     </tr>
@@ -48,6 +50,15 @@
                         <td>{{ job.original_filename }}</td>
                         <td>{{ job.selected_style.title() }}</td>
                         <td>{{ job.target_languages|join(', ')|upper }}</td>
+                        <td>
+                            {% if job.provider == 'assemblyai' %}
+                                AssemblyAI
+                            {% elif job.provider == 'whisper' %}
+                                Whisper
+                            {% else %}
+                                {{ job.provider|title }}
+                            {% endif %}
+                        </td>
                         <td>{{ job.processed_at.strftime("%Y-%m-%d %H:%M") }}</td>
                         <td>
                             {% if job.outputs %}
@@ -56,9 +67,16 @@
                                         <div class="history-output-item">
                                             <strong>{{ output.language_code.upper() }}</strong>
                                             {% if output.srt_filename %}
-                                                <a href="{{ url_for('download_file', filename=output.srt_filename) }}" class="btn btn--sm btn--primary" download>
-                                                    Download SRT
-                                                </a>
+                                                <div class="history-output-actions">
+                                                    <a href="{{ url_for('download_file', filename=output.srt_filename) }}" class="btn btn--sm btn--primary" download>
+                                                        Download SRT
+                                                    </a>
+                                                    {% if output.burned_video_filename %}
+                                                        <a href="{{ url_for('download_file', filename=output.burned_video_filename) }}" class="btn btn--sm btn--secondary" download>
+                                                            Download Video
+                                                        </a>
+                                                    {% endif %}
+                                                </div>
                                             {% else %}
                                                 <span class="status status--error">Pending</span>
                                             {% endif %}
@@ -86,5 +104,6 @@
             <p>Powered by configurable transcription providers | Made with ❤️ for Content Creators</p>
         </footer>
     </div>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

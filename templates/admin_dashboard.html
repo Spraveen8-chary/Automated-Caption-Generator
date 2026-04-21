@@ -20,6 +20,7 @@
             <div class="navbar-menu">
                 <div class="user-info">
                     <span class="user-name">👤 {{ current_user.username }}</span>
+                    <button type="button" class="btn btn--sm btn--outline theme-toggle" data-theme-toggle>Dark Mode</button>
                     <a href="{{ url_for('index') }}" class="btn btn--sm btn--outline">Main App</a>
                     <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--outline">Logout</a>
                 </div>
@@ -104,6 +105,69 @@
                     <canvas id="videoChart"></canvas>
                 </div>
             </div>
+        </section>
+
+        <!-- Payment Requests -->
+        <section class="admin-section payment-section fade-in">
+            <div class="section-header">
+                <div>
+                    <h2>Payment Requests</h2>
+                    <p>Review premium payments and activate the 50 video limit after approval.</p>
+                </div>
+                <div class="payment-section__meta">
+                    <span class="plan-pill">{{ pending_payment_count }} pending</span>
+                    <span class="payment-count">{{ payment_requests|length }} total requests</span>
+                </div>
+            </div>
+
+            {% if payment_requests %}
+                <div class="payment-queue">
+                    {% for payment_request in payment_requests %}
+                        <div class="payment-request-card payment-request-card--{{ payment_request.status }}">
+                            <div class="payment-request-top">
+                                <div>
+                                    <strong>{{ payment_request.user.username }}</strong>
+                                    <div class="payment-request-meta">
+                                        <span>Amount: ₹{{ payment_request.amount }} / {{ payment_request.currency }}</span>
+                                        <span>UPI: {{ payment_request.upi_id }}</span>
+                                        <span>Reference: {{ payment_request.payment_reference or 'Not provided' }}</span>
+                                        <span>Requested: {{ payment_request.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+                                    </div>
+                                </div>
+                                <div class="payment-request-meta" style="align-items:flex-end;">
+                                    {% if payment_request.status == 'pending' %}
+                                        <span class="badge badge--free">Pending</span>
+                                    {% elif payment_request.status == 'approved' %}
+                                        <span class="badge badge--premium">Approved</span>
+                                    {% else %}
+                                        <span class="badge badge--admin">Rejected</span>
+                                    {% endif %}
+                                    <span class="plan-pill">{{ payment_request.approved_video_limit }} videos</span>
+                                </div>
+                            </div>
+
+                            {% if payment_request.admin_message %}
+                                <div class="payment-request-note">{{ payment_request.admin_message }}</div>
+                            {% endif %}
+
+                            {% if payment_request.status == 'pending' %}
+                                <div class="payment-request-actions">
+                                    <button class="btn btn--sm btn--primary" type="button" data-payment-approve="{{ payment_request.id }}">
+                                        Approve
+                                    </button>
+                                    <button class="btn btn--sm btn--outline" type="button" data-payment-reject="{{ payment_request.id }}">
+                                        Reject
+                                    </button>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p>No payment requests yet.</p>
+                </div>
+            {% endif %}
         </section>
 
         <!-- Users Table -->
@@ -256,6 +320,7 @@
         </footer>
     </div>
 
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
         // Toggle user history
         document.querySelectorAll('.toggle-history').forEach(btn => {
@@ -270,6 +335,31 @@
                     historyRow.style.display = 'none';
                     this.textContent = 'View History';
                 }
+            });
+        });
+
+        async function handlePaymentDecision(endpoint) {
+            const response = await fetch(endpoint, { method: 'POST' });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Action failed');
+            }
+            window.location.reload();
+        }
+
+        document.querySelectorAll('[data-payment-approve]').forEach((button) => {
+            button.addEventListener('click', () => {
+                handlePaymentDecision(`/admin/payments/${button.dataset.paymentApprove}/approve`).catch((error) => {
+                    alert(error.message);
+                });
+            });
+        });
+
+        document.querySelectorAll('[data-payment-reject]').forEach((button) => {
+            button.addEventListener('click', () => {
+                handlePaymentDecision(`/admin/payments/${button.dataset.paymentReject}/reject`).catch((error) => {
+                    alert(error.message);
+                });
             });
         });
 

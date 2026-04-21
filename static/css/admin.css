@@ -1,8 +1,8 @@
 /* Admin Dashboard Specific Styles */
 
 .admin-navbar {
-    background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
-    border-bottom: 1px solid #333;
+    background: linear-gradient(135deg, rgba(var(--color-teal-500-rgb), 0.16) 0%, rgba(var(--color-brown-600-rgb), 0.12) 100%);
+    border-bottom: 1px solid var(--color-border);
 }
 
 .admin-badge {
@@ -108,6 +108,80 @@
     padding: 32px;
     margin-bottom: 32px;
     box-shadow: var(--shadow-sm);
+}
+
+.payment-section {
+    margin-bottom: 32px;
+}
+
+.payment-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.payment-section__meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.payment-count {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+}
+
+.payment-queue {
+    display: grid;
+    gap: 16px;
+}
+
+.payment-request-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    background: var(--color-background);
+    display: grid;
+    gap: 12px;
+}
+
+.payment-request-card--pending {
+    border-color: rgba(var(--color-info-rgb), 0.35);
+}
+
+.payment-request-card--approved {
+    border-color: rgba(var(--color-success-rgb), 0.35);
+}
+
+.payment-request-card--rejected {
+    border-color: rgba(var(--color-error-rgb), 0.35);
+}
+
+.payment-request-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.payment-request-meta {
+    display: grid;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.payment-request-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.payment-request-note {
+    font-size: 13px;
+    color: var(--color-text-secondary);
 }
 
 .section-header {
@@ -314,5 +388,17 @@
     
     .admin-container {
         padding: 16px;
+    }
+
+    .payment-section .section-header {
+        flex-direction: column;
+    }
+
+    .payment-section__meta {
+        align-items: flex-start;
+    }
+
+    .payment-request-top {
+        flex-direction: column;
     }
 }

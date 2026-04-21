@@ -46,22 +46,21 @@ FLASK_SECRET_KEY=your-secret
 GOOGLE_API_KEY=your-google-api-key
 DATABASE_URL=sqlite:///caption_generator.db
 TEMP_FOLDER=uploads
+OUTPUT_FOLDER=outputs
 MAX_UPLOAD_SIZE=100
 ALLOWED_EXTENSIONS=mp4,mov,avi,mkv,webm
 LOG_LEVEL=INFO
 FREE_USER_VIDEO_LIMIT=2
 MAX_TARGET_LANGUAGES_PER_JOB=5
 ENABLE_BURNED_VIDEO=true
-TRANSCRIPTION_PROVIDER=gemini
+TRANSCRIPTION_PROVIDER=auto
 GEMINI_MODEL=gemini-2.5-flash
 GEMINI_MODEL_FALLBACKS=gemini-2.0-flash
 WHISPER_MODEL=base
 ASSEMBLYAI_API_KEY=
 ```
 
-`TRANSCRIPTION_PROVIDER` can be set to `gemini`, `whisper`, or `assemblyai`. If you switch to `whisper`, install either `whisper` or `faster-whisper`. If you switch to `assemblyai`, provide `ASSEMBLYAI_API_KEY` and install the AssemblyAI SDK.
-
-If Gemini hits a quota limit, the app will try Whisper automatically when the local Whisper dependencies are installed.
+`TRANSCRIPTION_PROVIDER` can be set to `auto`, `whisper`, or `assemblyai`. If you switch to `whisper`, install either `whisper` or `faster-whisper`. If you switch to `assemblyai`, provide `ASSEMBLYAI_API_KEY` and install the AssemblyAI SDK. The app now uses Gemini for caption styling, not for transcription.
 
 ## Run locally
 
@@ -74,10 +73,12 @@ Then open `http://localhost:5000`.
 ## Hardening notes
 
 - Uploaded source videos and extracted audio are cleaned up after a successful transcript job.
-- Exported SRT files remain in `uploads/` so the download route stays stable.
+- Uploaded source videos and extracted audio stay in `uploads/`.
+- Exported SRT and burned video files are written to `outputs/` by default.
 - Structured JSON logging is enabled through the application logger.
 - Core service coverage lives in `tests/test_core_services.py`.
 - The current workflow uses one caption style and multiple target languages per job.
+- Gemini is used for style rewrites, while Whisper or AssemblyAI generate the raw transcript.
 
 ## Phase docs
 

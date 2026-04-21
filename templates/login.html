@@ -10,6 +10,9 @@
 <body class="auth-body">
     <div class="auth-container">
         <div class="auth-card">
+            <div class="auth-toolbar">
+                <button type="button" class="btn btn--sm btn--outline theme-toggle" data-theme-toggle>Dark Mode</button>
+            </div>
             <!-- Logo/Header -->
             <div class="auth-header">
                 <h1>🎬 Caption Generator</h1>
@@ -87,7 +90,7 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="20 6 9 17 4 12"></polyline>
                     </svg>
-                    <span>2 Free Videos</span>
+                    <span>{{ free_user_video_limit }} Free Videos</span>
                 </div>
                 <div class="feature-item">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -105,6 +108,7 @@
         </div>
     </div>
 
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
 </body>
 </html>

@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import warnings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,8 +15,9 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///caption_generator.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    # Upload settings
+    # Storage settings
     UPLOAD_FOLDER = os.getenv('TEMP_FOLDER', 'uploads')
+    OUTPUT_FOLDER = os.getenv('OUTPUT_FOLDER', 'outputs')
     MAX_CONTENT_LENGTH = int(os.getenv('MAX_UPLOAD_SIZE', 100)) * 1024 * 1024  # MB to bytes
     ALLOWED_EXTENSIONS = set(os.getenv('ALLOWED_EXTENSIONS', 'mp4,mov,avi,mkv,webm').split(','))
     
@@ -23,7 +25,7 @@ class Config:
     GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
     GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
     GEMINI_MODEL_FALLBACKS = os.getenv('GEMINI_MODEL_FALLBACKS', 'gemini-2.0-flash')
-    TRANSCRIPTION_PROVIDER = os.getenv('TRANSCRIPTION_PROVIDER', 'gemini').strip().lower()
+    TRANSCRIPTION_PROVIDER = os.getenv('TRANSCRIPTION_PROVIDER', 'auto').strip().lower()
     WHISPER_MODEL = os.getenv('WHISPER_MODEL', 'base')
     ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
     
@@ -31,6 +33,10 @@ class Config:
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     FREE_USER_VIDEO_LIMIT = int(os.getenv('FREE_USER_VIDEO_LIMIT', 2))
     FREE_VIDEO_LIMIT = FREE_USER_VIDEO_LIMIT
+    PREMIUM_MONTHLY_PRICE = int(os.getenv('PREMIUM_MONTHLY_PRICE', 499))
+    PREMIUM_VIDEO_LIMIT = int(os.getenv('PREMIUM_VIDEO_LIMIT', 50))
+    PAYMENT_UPI_ID = os.getenv('PAYMENT_UPI_ID', '9390425742@ybl')
+    PAYMENT_PAYEE_NAME = os.getenv('PAYMENT_PAYEE_NAME', 'Caption Generator')
     MAX_TARGET_LANGUAGES_PER_JOB = int(os.getenv('MAX_TARGET_LANGUAGES_PER_JOB', 5))
     ENABLE_BURNED_VIDEO = os.getenv('ENABLE_BURNED_VIDEO', 'true').strip().lower() not in {
         '0',
@@ -110,31 +116,47 @@ class Config:
         }
     }
     
-    @staticmethod
-    def init_app(app):
+    @classmethod
+    def init_app(cls, app):
         """Initialize application configuration"""
-        # Create upload folder if it doesn't exist
-        os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+        # Create storage folders if they don't exist
+        os.makedirs(cls.UPLOAD_FOLDER, exist_ok=True)
+        os.makedirs(cls.OUTPUT_FOLDER, exist_ok=True)
 
-    @staticmethod
-    def validate_app_config():
+    @classmethod
+    def validate_app_config(cls):
         """Validate configuration values that gate startup."""
-        if Config.FREE_USER_VIDEO_LIMIT < 1:
+        if cls.FREE_USER_VIDEO_LIMIT < 1:
             raise ValueError('FREE_USER_VIDEO_LIMIT must be at least 1')
 
-        if Config.MAX_TARGET_LANGUAGES_PER_JOB < 1:
+        if cls.PREMIUM_MONTHLY_PRICE < 1:
+            raise ValueError('PREMIUM_MONTHLY_PRICE must be at least 1')
+
+        if cls.PREMIUM_VIDEO_LIMIT < 1:
+            raise ValueError('PREMIUM_VIDEO_LIMIT must be at least 1')
+
+        if cls.MAX_TARGET_LANGUAGES_PER_JOB < 1:
             raise ValueError('MAX_TARGET_LANGUAGES_PER_JOB must be at least 1')
 
-        provider = Config.TRANSCRIPTION_PROVIDER or 'gemini'
-        valid_providers = {'gemini', 'whisper', 'assemblyai'}
+        provider = (cls.TRANSCRIPTION_PROVIDER or 'auto').strip().lower()
+        valid_providers = {'auto', 'whisper', 'assemblyai', 'gemini'}
         if provider not in valid_providers:
             raise ValueError(
                 f"Invalid TRANSCRIPTION_PROVIDER '{provider}'. "
                 f"Expected one of: {sorted(valid_providers)}"
             )
 
-        if provider == 'gemini' and not Config.GOOGLE_API_KEY:
-            raise ValueError('GOOGLE_API_KEY is required when TRANSCRIPTION_PROVIDER=gemini')
+        if provider == 'gemini':
+            warnings.warn(
+                'TRANSCRIPTION_PROVIDER=gemini is deprecated; using auto transcription with Gemini for styling only.',
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            cls.TRANSCRIPTION_PROVIDER = 'auto'
+            provider = 'auto'
+
+        if provider == 'auto':
+            return
 
         if provider == 'whisper':
             whisper_available = importlib.util.find_spec('whisper') is not None
@@ -144,7 +166,7 @@ class Config:
                     'TRANSCRIPTION_PROVIDER=whisper requires the whisper or faster-whisper package'
                 )
 
-        if provider == 'assemblyai' and not Config.ASSEMBLYAI_API_KEY:
+        if provider == 'assemblyai' and not cls.ASSEMBLYAI_API_KEY:
             raise ValueError('ASSEMBLYAI_API_KEY is required when TRANSCRIPTION_PROVIDER=assemblyai')
 
         if provider == 'assemblyai' and importlib.util.find_spec('assemblyai') is None:

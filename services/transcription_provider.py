@@ -74,12 +74,18 @@ class WhisperTranscriptionProvider(TranscriptionProvider):
         return self._model
 
     @staticmethod
-    def _normalize_segments(segments):
+    def _read_field(segment, field_name, default=None):
+        if isinstance(segment, dict):
+            return segment.get(field_name, default)
+        return getattr(segment, field_name, default)
+
+    @classmethod
+    def _normalize_segments(cls, segments):
         normalized = []
         for index, segment in enumerate(segments):
-            start = float(getattr(segment, 'start', 0.0))
-            end = float(getattr(segment, 'end', start))
-            text = getattr(segment, 'text', '')
+            start = float(cls._read_field(segment, 'start', 0.0))
+            end = float(cls._read_field(segment, 'end', start))
+            text = cls._read_field(segment, 'text', '')
             normalized.append({
                 'id': index,
                 'start': start,
@@ -134,19 +140,25 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
         self._aai = aai
 
     @staticmethod
-    def _normalize_segments(result):
+    def _read_field(segment, field_name, default=None):
+        if isinstance(segment, dict):
+            return segment.get(field_name, default)
+        return getattr(segment, field_name, default)
+
+    @classmethod
+    def _normalize_segments(cls, result):
         raw_segments = []
         for attr_name in ('utterances', 'segments'):
-            value = getattr(result, attr_name, None)
+            value = cls._read_field(result, attr_name, None)
             if value:
                 raw_segments = list(value)
                 break
 
         normalized = []
         for index, segment in enumerate(raw_segments):
-            start = float(getattr(segment, 'start', 0.0))
-            end = float(getattr(segment, 'end', start))
-            text = getattr(segment, 'text', '')
+            start = float(cls._read_field(segment, 'start', 0.0))
+            end = float(cls._read_field(segment, 'end', start))
+            text = cls._read_field(segment, 'text', '')
             normalized.append({
                 'id': index,
                 'start': start,
@@ -158,13 +170,13 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
         if normalized:
             return normalized
 
-        transcript_text = getattr(result, 'text', '') or ''
+        transcript_text = cls._read_field(result, 'text', '') or ''
         if transcript_text:
             return [{
                 'id': 0,
                 'start': 0.0,
-                'end': float(getattr(result, 'audio_duration', 0.0) or 0.0),
-                'duration': float(getattr(result, 'audio_duration', 0.0) or 0.0),
+                'end': float(cls._read_field(result, 'audio_duration', 0.0) or 0.0),
+                'duration': float(cls._read_field(result, 'audio_duration', 0.0) or 0.0),
                 'text': transcript_text.strip(),
             }]
 
@@ -188,12 +200,12 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
         except TypeError:
             result = transcriber.transcribe(audio_path)
 
-        if getattr(result, 'error', None):
-            raise ProviderConfigurationError(getattr(result, 'error', 'AssemblyAI transcription failed'))
+        if self._read_field(result, 'error', None):
+            raise ProviderConfigurationError(self._read_field(result, 'error', 'AssemblyAI transcription failed'))
 
         segments = self._normalize_segments(result)
-        text = getattr(result, 'text', '') or ' '.join(segment['text'] for segment in segments)
-        duration = segments[-1]['end'] if segments else float(getattr(result, 'audio_duration', 0.0) or 0.0)
+        text = self._read_field(result, 'text', '') or ' '.join(segment['text'] for segment in segments)
+        duration = segments[-1]['end'] if segments else float(self._read_field(result, 'audio_duration', 0.0) or 0.0)
         return {
             'text': text.strip(),
             'language': language,
@@ -204,10 +216,24 @@ class AssemblyAITranscriptionProvider(TranscriptionProvider):
 
 def build_transcription_provider(provider_name, google_api_key=None, whisper_model='base', assemblyai_api_key=None):
     """Build the configured transcription provider."""
-    normalized_name = (provider_name or 'gemini').strip().lower()
+    normalized_name = (provider_name or 'auto').strip().lower()
+
+    if normalized_name in {'', 'auto'}:
+        if importlib.util.find_spec('whisper') is not None or importlib.util.find_spec('faster_whisper') is not None:
+            return WhisperTranscriptionProvider(model_name=whisper_model)
+
+        if assemblyai_api_key and importlib.util.find_spec('assemblyai') is not None:
+            return AssemblyAITranscriptionProvider(assemblyai_api_key)
+
+        raise ProviderConfigurationError(
+            'No transcription backend is available. Install whisper or faster-whisper, '
+            'or configure TRANSCRIPTION_PROVIDER=assemblyai with the AssemblyAI SDK installed.'
+        )
 
     if normalized_name == 'gemini':
-        return GeminiTranscriptionProvider(google_api_key)
+        raise ProviderConfigurationError(
+            'Gemini is reserved for style generation. Use whisper or assemblyai for transcription.'
+        )
 
     if normalized_name == 'whisper':
         return WhisperTranscriptionProvider(model_name=whisper_model)
@@ -216,5 +242,5 @@ def build_transcription_provider(provider_name, google_api_key=None, whisper_mod
         return AssemblyAITranscriptionProvider(assemblyai_api_key)
 
     raise ProviderConfigurationError(
-        f"Invalid TRANSCRIPTION_PROVIDER '{normalized_name}'. Expected gemini, whisper, or assemblyai."
+        f"Invalid TRANSCRIPTION_PROVIDER '{normalized_name}'. Expected auto, whisper, or assemblyai."
     )

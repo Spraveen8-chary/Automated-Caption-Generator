@@ -97,7 +97,7 @@ def login():
                     'username': user.username,
                     'is_admin': getattr(user, 'is_admin', False),
                     'redirect_url': '/admin' if getattr(user, 'is_admin', False) else '/',
-                    'videos_processed': user.get_video_count(),
+                    'videos_processed': user.get_usage_count(),
                     'can_process': user.can_process_video()
                 }), 200
             
@@ -114,7 +114,7 @@ def login():
         
         flash(error_message, 'error')
     
-    return render_template('login.html')
+    return render_template('login.html', free_user_video_limit=Config.FREE_USER_VIDEO_LIMIT)
 
 
 @auth.route('/logout')
@@ -133,8 +133,8 @@ def user_status():
     return jsonify({
         'username': current_user.username,
         'email': current_user.email,
-        'videos_processed': current_user.get_video_count(),
-        'videos_remaining': max(Config.FREE_USER_VIDEO_LIMIT - current_user.get_video_count(), 0) if not current_user.is_premium else 'unlimited',
+        'videos_processed': current_user.get_usage_count(),
+        'videos_remaining': current_user.get_remaining_video_count(),
         'is_premium': current_user.is_premium,
         'free_user_video_limit': Config.FREE_USER_VIDEO_LIMIT,
         'can_process': current_user.can_process_video()

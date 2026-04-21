@@ -1,16 +1,18 @@
 import os
 import logging
+import mimetypes
+from urllib.parse import urlencode
 from flask import Flask, render_template, request, jsonify, send_file, redirect, url_for, flash
 from flask_login import LoginManager, login_required, current_user
 from werkzeug.utils import secure_filename
 from config import Config
-from models import db, User, VideoProcessing
+from models import db, User, VideoProcessing, PaymentRequest
 from auth import auth as auth_blueprint
 from repositories.processing_repository import ProcessingRepository
 from repositories.transcript_repository import TranscriptRepository
+from services.style_service import StyleService
 from services.transcript_service import TranscriptService
 from services.upload_service import UploadService
-from services.transcription_provider import build_transcription_provider
 from utils.logging_utils import configure_logging
 from datetime import datetime
 
@@ -45,11 +47,10 @@ transcript_repository = TranscriptRepository()
 transcript_service = TranscriptService(
     app.config['UPLOAD_FOLDER'],
     app.config['GOOGLE_API_KEY'],
-    transcription_provider=build_transcription_provider(
-        provider_name=app.config['TRANSCRIPTION_PROVIDER'],
-        google_api_key=app.config['GOOGLE_API_KEY'],
-        whisper_model=app.config['WHISPER_MODEL'],
-        assemblyai_api_key=app.config['ASSEMBLYAI_API_KEY'],
+    output_folder=app.config['OUTPUT_FOLDER'],
+    style_service=StyleService(
+        gemini_api_key=app.config['GOOGLE_API_KEY'],
+        gemini_model=app.config.get('GEMINI_MODEL'),
     ),
     transcript_repository=transcript_repository,
     processing_repository=processing_repository,
@@ -78,16 +79,63 @@ with app.app_context():
 @login_required
 def index():
     """Render main page"""
+    provider_labels = {
+        'auto': 'Auto',
+        'whisper': 'Whisper',
+        'assemblyai': 'AssemblyAI',
+    }
+    transcription_provider = app.config['TRANSCRIPTION_PROVIDER']
+    style_provider_display = 'Gemini' if app.config.get('GOOGLE_API_KEY') else 'Local'
+    latest_payment_request = (
+        PaymentRequest.query.filter_by(user_id=current_user.id)
+        .order_by(PaymentRequest.created_at.desc())
+        .first()
+    )
+    payment_request_payload = None
+    if latest_payment_request is not None:
+        payment_request_payload = {
+            'id': latest_payment_request.id,
+            'status': latest_payment_request.status,
+            'amount': latest_payment_request.amount,
+            'currency': latest_payment_request.currency,
+            'upi_id': latest_payment_request.upi_id,
+            'payee_name': latest_payment_request.payee_name,
+            'payment_reference': latest_payment_request.payment_reference,
+            'approved_video_limit': latest_payment_request.approved_video_limit,
+            'admin_message': latest_payment_request.admin_message,
+            'created_at': latest_payment_request.created_at.isoformat() if latest_payment_request.created_at else None,
+            'approved_at': latest_payment_request.approved_at.isoformat() if latest_payment_request.approved_at else None,
+        }
+    payment_uri = "upi://pay?" + urlencode({
+        'pa': app.config['PAYMENT_UPI_ID'],
+        'pn': app.config['PAYMENT_PAYEE_NAME'],
+        'am': str(app.config['PREMIUM_MONTHLY_PRICE']),
+        'cu': 'INR',
+        'tn': f"Premium plan for {current_user.username}",
+    })
     return render_template(
         'index.html',
         styles=app.config['CAPTION_STYLES'],
         language_groups=app.config['LANGUAGE_GROUPS'],
         user=current_user,
-        videos_processed=current_user.get_video_count(),
+        plan_label=current_user.get_plan_label(),
+        active_video_limit=current_user.get_active_video_limit(),
+        remaining_video_count=current_user.get_remaining_video_count(),
+        videos_processed=current_user.get_usage_count(),
         can_process=current_user.can_process_video(),
         free_user_video_limit=app.config['FREE_USER_VIDEO_LIMIT'],
+        premium_monthly_price=app.config['PREMIUM_MONTHLY_PRICE'],
+        premium_video_limit=app.config['PREMIUM_VIDEO_LIMIT'],
+        payment_upi_id=app.config['PAYMENT_UPI_ID'],
+        payment_payee_name=app.config['PAYMENT_PAYEE_NAME'],
+        payment_uri=payment_uri,
+        payment_request=latest_payment_request,
+        payment_request_payload=payment_request_payload,
         max_target_languages_per_job=app.config['MAX_TARGET_LANGUAGES_PER_JOB'],
         enable_burned_video=app.config['ENABLE_BURNED_VIDEO'],
+        transcription_provider=transcription_provider,
+        transcription_provider_display=provider_labels.get(transcription_provider, transcription_provider.title()),
+        style_provider_display=style_provider_display,
     )
 
 
@@ -263,6 +311,8 @@ def admin_dashboard():
 
     users = processing_repository.get_all_users()
     all_videos = processing_repository.get_all_videos()
+    payment_requests = PaymentRequest.query.order_by(PaymentRequest.created_at.desc()).all()
+    pending_payment_requests = [payment_request for payment_request in payment_requests if payment_request.status == 'pending']
     total_videos = len(all_videos)
     total_users = len(users)
 
@@ -288,27 +338,150 @@ def admin_dashboard():
         total_videos=total_videos,
         month_video_count=len(month_videos),
         month_new_users=len(month_users),
-        user_history=user_history
+        user_history=user_history,
+        payment_requests=payment_requests,
+        pending_payment_requests=pending_payment_requests,
+        pending_payment_count=len(pending_payment_requests),
+        premium_video_limit=app.config['PREMIUM_VIDEO_LIMIT'],
+        premium_monthly_price=app.config['PREMIUM_MONTHLY_PRICE']
     )
+
+
+@app.route('/payments/request', methods=['POST'])
+@login_required
+def request_premium_payment():
+    """Create a pending premium payment request for the current user."""
+    try:
+        data = request.get_json(silent=True) or {}
+        payment_reference = (data.get('payment_reference') or '').strip()
+
+        existing_pending = PaymentRequest.query.filter_by(user_id=current_user.id, status='pending').first()
+        if existing_pending is not None:
+            return jsonify({
+                'success': True,
+                'message': 'You already have a pending payment request.',
+                'payment_request': {
+                    'id': existing_pending.id,
+                    'status': existing_pending.status,
+                    'amount': existing_pending.amount,
+                    'video_limit': existing_pending.approved_video_limit,
+                },
+            }), 200
+
+        payment_request = PaymentRequest(
+            user_id=current_user.id,
+            amount=app.config['PREMIUM_MONTHLY_PRICE'],
+            currency='INR',
+            upi_id=app.config['PAYMENT_UPI_ID'],
+            payee_name=app.config['PAYMENT_PAYEE_NAME'],
+            status='pending',
+            payment_reference=payment_reference or None,
+            approved_video_limit=app.config['PREMIUM_VIDEO_LIMIT'],
+            admin_message=f'Payment request submitted by {current_user.username}',
+        )
+        db.session.add(payment_request)
+        db.session.commit()
+
+        logger.info(
+            "payment.request.created",
+            extra={'user_id': current_user.id, 'payment_request_id': payment_request.id},
+        )
+        return jsonify({
+            'success': True,
+            'message': 'Payment request sent to admin for approval.',
+            'payment_request': {
+                'id': payment_request.id,
+                'status': payment_request.status,
+                'amount': payment_request.amount,
+                'video_limit': payment_request.approved_video_limit,
+            },
+        }), 201
+    except Exception as e:
+        logger.exception("payment.request.failed", extra={'user_id': current_user.id})
+        return jsonify({'error': f'Could not submit payment request: {str(e)}'}), 500
+
+
+@app.route('/admin/payments/<int:request_id>/approve', methods=['POST'])
+@login_required
+def approve_payment_request(request_id):
+    """Approve a premium payment request and grant the premium video limit."""
+    if not getattr(current_user, "is_admin", False):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    payment_request = db.session.get(PaymentRequest, request_id)
+    if payment_request is None:
+        return jsonify({'error': 'Payment request not found'}), 404
+
+    payment_request.status = 'approved'
+    payment_request.approved_at = datetime.utcnow()
+    payment_request.admin_message = f'Approved by {current_user.username}'
+    if payment_request.user is not None:
+        payment_request.user.is_premium = True
+
+    db.session.commit()
+    logger.info(
+        "payment.request.approved",
+        extra={'admin_id': current_user.id, 'payment_request_id': request_id, 'user_id': payment_request.user_id},
+    )
+    return jsonify({
+        'success': True,
+        'message': 'Payment approved. Premium limit activated.',
+        'user_id': payment_request.user_id,
+        'video_limit': payment_request.approved_video_limit,
+    }), 200
+
+
+@app.route('/admin/payments/<int:request_id>/reject', methods=['POST'])
+@login_required
+def reject_payment_request(request_id):
+    """Reject a premium payment request."""
+    if not getattr(current_user, "is_admin", False):
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    payment_request = db.session.get(PaymentRequest, request_id)
+    if payment_request is None:
+        return jsonify({'error': 'Payment request not found'}), 404
+
+    payment_request.status = 'rejected'
+    payment_request.approved_at = None
+    payment_request.admin_message = f'Rejected by {current_user.username}'
+    db.session.commit()
+    logger.info(
+        "payment.request.rejected",
+        extra={'admin_id': current_user.id, 'payment_request_id': request_id, 'user_id': payment_request.user_id},
+    )
+    return jsonify({
+        'success': True,
+        'message': 'Payment request rejected.',
+        'user_id': payment_request.user_id,
+    }), 200
 
 
 
 @app.route('/download/<filename>')
 @login_required
 def download_file(filename):
-    """Download generated SRT file"""
+    """Download a generated caption artifact."""
     try:
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+        safe_filename = secure_filename(filename)
+        search_paths = [app.config['OUTPUT_FOLDER'], app.config['UPLOAD_FOLDER']]
+        filepath = None
+        for base_path in search_paths:
+            candidate_path = os.path.join(base_path, safe_filename)
+            if os.path.exists(candidate_path):
+                filepath = candidate_path
+                break
 
-        if not os.path.exists(filepath):
+        if filepath is None:
             return jsonify({'error': 'File not found'}), 404
 
         logger.info("download.requested", extra={'user_id': current_user.id, 'download_filename': filename})
+        mimetype, _ = mimetypes.guess_type(filepath)
         return send_file(
             filepath,
             as_attachment=True,
             download_name=filename,
-            mimetype='application/x-subrip'
+            mimetype=mimetype or 'application/octet-stream'
         )
 
     except Exception as e:

@@ -17,6 +17,7 @@
             <div class="navbar-menu">
                 <div class="user-info">
                     <span class="user-name">👤 {{ user.username }}</span>
+                    <button type="button" class="btn btn--sm btn--outline theme-toggle" data-theme-toggle>Dark Mode</button>
                     <a href="{{ url_for('history') }}" class="btn btn--sm btn--outline">History</a>
                     <a href="{{ url_for('auth.logout') }}" class="btn btn--sm btn--outline currentColor">Logout</a>
                 </div>
@@ -27,7 +28,7 @@
     <div class="container">
         <!-- Usage Limit Banner -->
         <div class="usage-banner {% if not can_process %}usage-banner--limit{% endif %}">
-            <div class="usage-info">
+                <div class="usage-info">
                 <div class="usage-icon">
                     {% if can_process %}
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -44,15 +45,14 @@
                 </div>
                 <div class="usage-text">
                     <h3>
-                        {% if user.is_premium %}
-                            Premium Account
-                        {% else %}
-                            Free Account
-                        {% endif %}
+                        {{ plan_label }}
                     </h3>
                     <p>
-                        {% if user.is_premium %}
-                            Unlimited video processing
+                        {% if active_video_limit %}
+                            {{ videos_processed }} of {{ active_video_limit }} videos used
+                            {% if not can_process %}
+                                - <strong>Limit reached</strong>
+                            {% endif %}
                         {% else %}
                             {{ videos_processed }} of {{ free_user_video_limit }} videos used
                             {% if not can_process %}
@@ -60,17 +60,30 @@
                             {% endif %}
                         {% endif %}
                     </p>
+                    {% if active_video_limit %}
+                        <p class="usage-provider">Plan limit: {{ active_video_limit }} videos</p>
+                    {% endif %}
+                    <p class="usage-provider">Remaining: {{ remaining_video_count }}</p>
+                    <p class="usage-provider">Provider: {{ transcription_provider_display }}</p>
+                    <p class="usage-provider">Style engine: {{ style_provider_display }}</p>
                 </div>
             </div>
             {% if not user.is_premium %}
                 <div class="usage-progress">
+                    {% set usage_limit = active_video_limit if active_video_limit is not none else free_user_video_limit %}
                     <div class="progress-bar-mini">
-                        <div class="progress-bar-mini__fill" style="width: {{ (videos_processed / free_user_video_limit * 100)|int }}%"></div>
+                        <div class="progress-bar-mini__fill" style="width: {{ (videos_processed / usage_limit * 100)|int if usage_limit else 100 }}%"></div>
                     </div>
-                    {% if not can_process %}
-                        <button class="btn btn--primary btn--sm" onclick="showUpgradeModal()">
-                            ⭐ Upgrade to Premium
+                    {% if payment_request and payment_request.status == 'pending' %}
+                        <button class="btn btn--secondary btn--sm" type="button" disabled>
+                            Payment Pending
                         </button>
+                    {% endif %}
+                    <button class="btn btn--primary btn--sm" type="button" onclick="openPaymentModal()">
+                        Pay ₹{{ premium_monthly_price }}/month
+                    </button>
+                    {% if payment_request and payment_request.status == 'rejected' %}
+                        <p class="error-text">Your last payment request was rejected. You can submit a new request.</p>
                     {% endif %}
                 </div>
             {% endif %}
@@ -170,7 +183,7 @@
                         </fieldset>
                     {% endfor %}
                 </div>
-                <select id="languageSelect" class="form-control" multiple size="8">
+                <select id="languageSelect" class="form-control" multiple size="8" hidden>
                     <optgroup label="🇮🇳 Indian Languages">
                         <option value="hi">Hindi (हिंदी)</option>
                         <option value="bn">Bengali (বাংলা)</option>
@@ -292,6 +305,10 @@
                                 <span class="info-label">Languages:</span>
                                 <span class="info-value" id="selectedLanguage">English</span>
                             </div>
+                            <div class="info-item">
+                                <span class="info-label">Provider:</span>
+                                <span class="info-value" id="selectedProvider">{{ transcription_provider_display }}</span>
+                            </div>
                         </div>
                         
                         <!-- Caption Preview -->
@@ -302,7 +319,12 @@
 
                         <!-- Usage Update -->
                         <div class="usage-update" id="usageUpdate" style="display: none;">
-                            <p>Videos processed: <strong id="videosProcessedCount">0</strong> / 2</p>
+                            <p>
+                                Videos processed:
+                                <strong id="videosProcessedCount">0</strong>
+                                /
+                                <strong id="videosLimitCount">{{ free_user_video_limit }}</strong>
+                            </p>
                             <p id="remainingText">You have <strong id="remainingCount">0</strong> videos remaining</p>
                         </div>
                     </div>
@@ -344,40 +366,82 @@
         </footer>
     </div>
 
-    <!-- Premium Upgrade Modal -->
-    <div class="modal" id="upgradeModal" style="display: none;">
-        <div class="modal-overlay" onclick="closeUpgradeModal()"></div>
+    <!-- Premium Payment Modal -->
+    <div class="modal" id="paymentModal" style="display: none;">
+        <div class="modal-overlay" onclick="closePaymentModal()"></div>
         <div class="modal-content slide-up">
-            <button class="modal-close" onclick="closeUpgradeModal()">
+            <button class="modal-close" onclick="closePaymentModal()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
             </button>
             <div class="modal-header">
-                <h2>⭐ Upgrade to Premium</h2>
-                <p>Unlock unlimited caption generation</p>
+                <h2>Premium Payment</h2>
+                <p>Pay ₹{{ premium_monthly_price }} for {{ premium_video_limit }} videos</p>
             </div>
             <div class="modal-body">
                 <div class="pricing-card">
                     <div class="pricing-header">
                         <h3>Premium Plan</h3>
                         <div class="pricing-price">
-                            <span class="price">₹499</span>
+                            <span class="price">₹{{ premium_monthly_price }}</span>
                             <span class="period">/month</span>
                         </div>
                     </div>
+                    <div class="payment-summary">
+                        <div class="payment-copy">
+                            <strong>UPI ID</strong>
+                            <span>{{ payment_upi_id }}</span>
+                        </div>
+                        <div class="payment-copy">
+                            <strong>Payee Name</strong>
+                            <span>{{ payment_payee_name }}</span>
+                        </div>
+                    </div>
+                    <div class="payment-grid">
+                        <div class="payment-qr">
+                            <div class="payment-qr__box" id="paymentQrCode">
+                                <img src="{{ url_for('static', filename='PAYMENT_QR.jpeg') }}" alt="Payment QR code" class="payment-qr__image">
+                            </div>
+                            <p class="payment-qr__placeholder" id="paymentQrFallback">Scan the QR or open the UPI link.</p>
+                        </div>
+                        <div class="payment-actions">
+                            <a href="{{ payment_uri }}" class="btn btn--primary btn--lg btn--full-width" target="_blank" rel="noopener">
+                                Open UPI App
+                            </a>
+                            <label class="form-label" for="paymentReference">Payment Reference</label>
+                            <input type="text" class="form-control" id="paymentReference" placeholder="UTR / screenshot note">
+                            <button class="btn btn--secondary btn--lg btn--full-width" id="markPaidBtn" type="button" onclick="submitPaymentRequest()">
+                                I have paid
+                            </button>
+                            {% if payment_request and payment_request.status == 'pending' %}
+                                <div class="payment-status payment-status--pending" id="paymentStatus">
+                                    Your payment request is waiting for admin approval.
+                                </div>
+                            {% elif payment_request and payment_request.status == 'approved' %}
+                                <div class="payment-status payment-status--approved" id="paymentStatus">
+                                    Premium approved. Your limit is now {{ premium_video_limit }} videos.
+                                </div>
+                            {% elif payment_request and payment_request.status == 'rejected' %}
+                                <div class="payment-status payment-status--rejected" id="paymentStatus">
+                                    Your last payment request was rejected. Please submit a new one.
+                                </div>
+                            {% else %}
+                                <div class="payment-status" id="paymentStatus">
+                                    After paying, click the button above so admin can review your request.
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
                     <ul class="pricing-features">
-                        <li>✅ Unlimited video processing</li>
+                        <li>✅ {{ premium_video_limit }} videos per approval cycle</li>
                         <li>✅ All 40+ languages</li>
                         <li>✅ All caption styles</li>
                         <li>✅ Priority processing</li>
                         <li>✅ No watermarks</li>
                         <li>✅ Download history</li>
                     </ul>
-                    <button class="btn btn--primary btn--lg btn--full-width">
-                        Upgrade Now
-                    </button>
                 </div>
             </div>
         </div>
@@ -387,18 +451,17 @@
         window.APP_CONFIG = {
             freeUserVideoLimit: {{ free_user_video_limit|tojson }},
             maxTargetLanguagesPerJob: {{ max_target_languages_per_job|tojson }},
-            enableBurnedVideo: {{ enable_burned_video|tojson }}
+            enableBurnedVideo: {{ enable_burned_video|tojson }},
+            transcriptionProvider: {{ transcription_provider|tojson }},
+            premiumMonthlyPrice: {{ premium_monthly_price|tojson }},
+            premiumVideoLimit: {{ premium_video_limit|tojson }},
+            paymentUpiId: {{ payment_upi_id|tojson }},
+            paymentPayeeName: {{ payment_payee_name|tojson }},
+            paymentUri: {{ payment_uri|tojson }},
+            paymentRequest: {{ payment_request_payload|tojson }}
         };
-
-        // Modal functions
-        function showUpgradeModal() {
-            document.getElementById('upgradeModal').style.display = 'flex';
-        }
-        
-        function closeUpgradeModal() {
-            document.getElementById('upgradeModal').style.display = 'none';
-        }
     </script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

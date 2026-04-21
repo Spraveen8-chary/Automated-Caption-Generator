@@ -23,6 +23,7 @@ class User(UserMixin, db.Model):
     # Relationships
     videos = db.relationship('VideoProcessing', backref='user', lazy=True, cascade='all, delete-orphan')
     transcript_jobs = db.relationship('TranscriptJob', backref='user', lazy=True, cascade='all, delete-orphan')
+    payment_requests = db.relationship('PaymentRequest', backref='user', lazy=True, cascade='all, delete-orphan')
     
     def set_password(self, password):
         """Hash and set password"""
@@ -35,12 +36,66 @@ class User(UserMixin, db.Model):
     def get_video_count(self):
         """Get number of processed transcripts for usage limits"""
         return TranscriptJob.query.filter_by(user_id=self.id).count()
+
+    def _get_latest_approved_payment_request(self):
+        return (
+            PaymentRequest.query.filter_by(user_id=self.id, status='approved')
+            .order_by(PaymentRequest.approved_at.desc().nullslast(), PaymentRequest.created_at.desc())
+            .first()
+        )
+
+    def get_usage_count(self):
+        """Get the usage count for the current billing or free-usage window."""
+        latest_approved_request = self._get_latest_approved_payment_request()
+        if latest_approved_request is not None and latest_approved_request.approved_at is not None:
+            return TranscriptJob.query.filter(
+                TranscriptJob.user_id == self.id,
+                TranscriptJob.processed_at >= latest_approved_request.approved_at,
+            ).count()
+
+        return self.get_video_count()
+
+    def get_active_video_limit(self):
+        """Return the current processing limit for the user."""
+        if self.is_admin:
+            return None
+
+        latest_approved_request = self._get_latest_approved_payment_request()
+        if latest_approved_request is not None:
+            return latest_approved_request.approved_video_limit
+
+        if self.is_premium:
+            return None
+
+        return Config.FREE_USER_VIDEO_LIMIT
+
+    def get_remaining_video_count(self):
+        """Return how many videos the user can still process."""
+        limit = self.get_active_video_limit()
+        if limit is None:
+            return 'unlimited'
+        return max(limit - self.get_usage_count(), 0)
+
+    def get_plan_label(self):
+        """Return a short label for the current account tier."""
+        if self.is_admin:
+            return 'Admin'
+
+        latest_approved_request = self._get_latest_approved_payment_request()
+        if latest_approved_request is not None:
+            return f'Premium ({latest_approved_request.approved_video_limit} videos)'
+
+        if self.is_premium:
+            return 'Premium'
+
+        return 'Free'
     
     def can_process_video(self):
         """Check if user can process more videos"""
-        if self.is_premium:
+        limit = self.get_active_video_limit()
+        if limit is None:
             return True
-        return self.get_video_count() < Config.FREE_USER_VIDEO_LIMIT
+        return self.get_usage_count() < limit
     
     def __repr__(self):
         return f'<User {self.username}>'
@@ -167,3 +222,26 @@ class TranscriptSegment(db.Model):
 
     def __repr__(self):
         return f'<TranscriptSegment {self.transcript_job_id}:{self.segment_index}>'
+
+
+class PaymentRequest(db.Model):
+    """Track premium purchase requests awaiting admin approval."""
+
+    __tablename__ = 'payment_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    amount = db.Column(db.Integer, nullable=False, default=499)
+    currency = db.Column(db.String(10), nullable=False, default='INR')
+    upi_id = db.Column(db.String(120), nullable=False)
+    payee_name = db.Column(db.String(120), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    payment_reference = db.Column(db.String(120))
+    approved_video_limit = db.Column(db.Integer, nullable=False, default=50)
+    admin_message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    approved_at = db.Column(db.DateTime)
+
+    def __repr__(self):
+        return f'<PaymentRequest {self.user_id}:{self.status}>'

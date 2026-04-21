@@ -2,16 +2,16 @@
   /* Color tokens */
   --color-white: rgba(255, 255, 255, 1);
   --color-black: rgba(0, 0, 0, 1);
-  --color-cream-50: rgba(252, 252, 249, 1);
-  --color-cream-100: rgba(255, 255, 253, 1);
+  --color-cream-50: #0f1315;
+  --color-cream-100: #171c1f;
   --color-gray-200: rgba(245, 245, 245, 1);
-  --color-gray-300: rgba(167, 169, 169, 1);
-  --color-gray-400: rgba(119, 124, 124, 1);
-  --color-slate-500: rgba(98, 108, 113, 1);
+  --color-gray-300: rgba(180, 184, 187, 1);
+  --color-gray-400: rgba(145, 151, 155, 1);
+  --color-slate-500: rgba(176, 183, 187, 1);
   --color-brown-600: rgba(94, 82, 64, 1);
   --color-charcoal-700: rgba(31, 33, 33, 1);
   --color-charcoal-800: rgba(38, 40, 40, 1);
-  --color-slate-900: rgba(19, 52, 59, 1);
+  --color-slate-900: rgba(234, 240, 242, 1);
   --color-teal-300: rgba(50, 184, 198, 1);
   --color-teal-400: rgba(45, 166, 178, 1);
   --color-teal-500: rgba(33, 128, 141, 1);
@@ -31,26 +31,28 @@
   --color-surface: var(--color-cream-100);
   --color-text: var(--color-slate-900);
   --color-text-secondary: var(--color-slate-500);
-  --color-primary: var(--color-teal-500);
-  --color-primary-hover: var(--color-teal-600);
-  --color-primary-active: var(--color-teal-700);
-  --color-secondary: rgba(var(--color-brown-600-rgb), 0.12);
-  --color-secondary-hover: rgba(var(--color-brown-600-rgb), 0.2);
-  --color-border: rgba(var(--color-brown-600-rgb), 0.2);
-  --color-btn-primary-text: var(--color-cream-50);
-  --color-card-border: rgba(var(--color-brown-600-rgb), 0.12);
+  --color-primary: var(--color-teal-300);
+  --color-primary-hover: var(--color-teal-400);
+  --color-primary-active: var(--color-teal-500);
+  --color-secondary: rgba(255, 255, 255, 0.08);
+  --color-secondary-hover: rgba(255, 255, 255, 0.14);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-btn-primary-text: var(--color-slate-900);
+  --color-card-border: rgba(255, 255, 255, 0.10);
   --color-error: var(--color-red-500);
-  --color-success: var(--color-teal-500);
+  --color-success: var(--color-teal-300);
 
   /* Typography */
   --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-size-sm: 12px;
+  --font-size-xs: 11px;
   --font-size-base: 14px;
   --font-size-md: 16px;
   --font-size-lg: 18px;
   --font-size-xl: 20px;
   --font-size-2xl: 24px;
   --font-size-3xl: 32px;
+  --font-size-4xl: 40px;
 
   /* Spacing */
   --space-4: 4px;
@@ -72,6 +74,7 @@
   /* Shadows */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.18);
 
   /* Animation */
   --duration-fast: 150ms;
@@ -81,31 +84,31 @@
   --color-success-rgb: 33, 128, 141;
   --color-error-rgb: 192, 21, 47;
   --color-info-rgb: 50, 184, 198;
+  --color-focus-ring: rgba(var(--color-teal-300-rgb), 0.35);
 
-  color-scheme: light;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: #0f1315;
-    --color-surface: #171c1f;
-    --color-text: var(--color-gray-200);
-    --color-text-secondary: #b5b9bd;
-    --color-primary: var(--color-teal-300);
-    --color-primary-hover: var(--color-teal-400);
-    --color-primary-active: var(--color-teal-500);
-    --color-secondary: rgba(255, 255, 255, 0.08);
-    --color-secondary-hover: rgba(255, 255, 255, 0.14);
-    --color-border: rgba(255, 255, 255, 0.12);
-    --color-card-border: rgba(255, 255, 255, 0.10);
-    --color-btn-primary-text: var(--color-slate-900);
-    --color-error: var(--color-red-400);
-    --color-success: var(--color-teal-300);
-    --color-success-rgb: 50, 184, 198;
-    --color-error-rgb: 255, 84, 89;
-    --color-info-rgb: 50, 184, 198;
-    color-scheme: dark;
-  }
+[data-theme='light'] {
+  --color-background: rgba(252, 252, 249, 1);
+  --color-surface: rgba(255, 255, 253, 1);
+  --color-text: rgba(19, 52, 59, 1);
+  --color-text-secondary: rgba(98, 108, 113, 1);
+  --color-primary: rgba(33, 128, 141, 1);
+  --color-primary-hover: rgba(29, 116, 128, 1);
+  --color-primary-active: rgba(26, 104, 115, 1);
+  --color-secondary: rgba(94, 82, 64, 0.12);
+  --color-secondary-hover: rgba(94, 82, 64, 0.2);
+  --color-border: rgba(94, 82, 64, 0.2);
+  --color-btn-primary-text: rgba(252, 252, 249, 1);
+  --color-card-border: rgba(94, 82, 64, 0.12);
+  --color-error: rgba(192, 21, 47, 1);
+  --color-success: rgba(33, 128, 141, 1);
+  --color-success-rgb: 33, 128, 141;
+  --color-error-rgb: 192, 21, 47;
+  --color-info-rgb: 50, 184, 198;
+  --color-focus-ring: rgba(var(--color-teal-500-rgb), 0.25);
+  color-scheme: light;
 }
 
 * {
@@ -122,6 +125,12 @@ body {
   background-color: var(--color-background);
   background-image: radial-gradient(circle at top, rgba(var(--color-teal-500-rgb), 0.08), transparent 45%);
   -webkit-font-smoothing: antialiased;
+  transition: background-color var(--duration-normal), color var(--duration-normal);
+}
+
+html {
+  min-height: 100%;
+  background-color: var(--color-background);
 }
 
 .container {
@@ -454,9 +463,24 @@ body {
   background-color: var(--color-secondary);
 }
 
+.btn--secondary {
+  background-color: var(--color-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn--secondary:hover {
+  background-color: var(--color-secondary-hover);
+}
+
 .btn--sm {
   padding: var(--space-8) var(--space-16);
   font-size: var(--font-size-sm);
+}
+
+.btn--xs {
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
 }
 
 .btn--lg {
@@ -471,6 +495,16 @@ body {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.theme-toggle {
+  min-width: 112px;
+}
+
+.auth-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-16);
 }
 
 /* Progress Section */
@@ -713,6 +747,11 @@ body {
 .status--info {
   background-color: rgba(var(--color-teal-300-rgb), 0.15);
   color: var(--color-primary);
+}
+
+.status--error {
+  background-color: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
 }
 
 /* Error */

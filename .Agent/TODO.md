@@ -30,19 +30,19 @@
 - [x] Ensure process checks match configured limit.
 
 ## Phase 5 - Captioned video output
-- [ ] Generate SRT for each target language.[file:25]
-- [ ] Burn selected SRT captions into the uploaded video.[file:26]
-- [ ] Save downloadable captioned video artifacts.
-- [ ] Preserve original and generated file relationships.
+- [x] Generate SRT for each target language.[file:25]
+- [x] Burn selected SRT captions into the uploaded video.[file:26]
+- [x] Save downloadable captioned video artifacts.
+- [x] Preserve original and generated file relationships.
 
 ## Phase 6 - UI alignment
-- [ ] Change language selection from single select to multi-select.[file:32]
-- [ ] Restrict style selection to one chosen style per run if required by product rule.[file:32]
-- [ ] Add provider-selection or provider-display behavior if exposed in UI.
-- [ ] Add captioned-video download actions.
+- [x] Change language selection from single select to multi-select.[file:32]
+- [x] Restrict style selection to one chosen style per run if required by product rule.[file:32]
+- [x] Add provider-selection or provider-display behavior if exposed in UI.
+- [x] Add captioned-video download actions.
 
 ## Phase 7 - Hardening
-- [ ] Add tests for multi-language jobs.
-- [ ] Add tests for env-driven limits.
-- [ ] Add tests for provider switching.
-- [ ] Add tests for burned-video generation.
+- [x] Add tests for multi-language jobs.
+- [x] Add tests for env-driven limits.
+- [x] Add tests for provider switching.
+- [x] Add tests for burned-video generation.

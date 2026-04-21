@@ -148,7 +148,13 @@ class VideoProcessor:
             removable_suffixes = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav'}
             for filename in os.listdir(self.upload_folder):
                 filepath = os.path.join(self.upload_folder, filename)
-                if os.path.isfile(filepath) and os.path.splitext(filename)[1].lower() in removable_suffixes:
+                if not os.path.isfile(filepath):
+                    continue
+
+                if filename.endswith('_captions.mp4'):
+                    continue
+
+                if os.path.splitext(filename)[1].lower() in removable_suffixes:
                     self.cleanup_file(filepath)
                     
             logger.info("All temporary files cleaned up")

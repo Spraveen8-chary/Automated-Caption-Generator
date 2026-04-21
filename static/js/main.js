@@ -5,6 +5,7 @@ let state = {
     selectedStyle: 'meme',
     selectedLanguages: ['en'],
     primaryLanguage: 'en',
+    transcriptionProvider: null,
     languageOutputs: [],
     transcriptJobId: null,
     transcript: null,
@@ -12,7 +13,21 @@ let state = {
 };
 
 const appConfig = window.APP_CONFIG || {};
-const freeUserVideoLimit = Number(appConfig.freeUserVideoLimit || 2);
+const burnedVideoEnabled = Boolean(appConfig.enableBurnedVideo);
+
+function getConfiguredFreeLimit(data = {}) {
+    const fromData = Number(data.free_user_video_limit);
+    if (Number.isFinite(fromData) && fromData > 0) {
+        return fromData;
+    }
+
+    const fromConfig = Number(appConfig.freeUserVideoLimit);
+    if (Number.isFinite(fromConfig) && fromConfig > 0) {
+        return fromConfig;
+    }
+
+    return 0;
+}
 
 // DOM elements
 const uploadArea = document.getElementById('uploadArea');
@@ -56,16 +71,29 @@ const previewList = document.getElementById('previewList');
 const totalCaptionsEl = document.getElementById('totalCaptions');
 const selectedStyleEl = document.getElementById('selectedStyle');
 const selectedLanguageEl = document.getElementById('selectedLanguage');
+const selectedProviderEl = document.getElementById('selectedProvider');
 const downloadBtn = document.getElementById('downloadBtn');
 const newVideoBtn = document.getElementById('newVideoBtn');
+const defaultDownloadBtnHtml = downloadBtn ? downloadBtn.innerHTML : '';
 
 const usageHeading = document.querySelector('.usage-text h3');
 const usageParagraph = document.querySelector('.usage-text p');
 const usageFill = document.querySelector('.progress-bar-mini__fill');
+const usageUpdate = document.getElementById('usageUpdate');
+const videosProcessedCount = document.getElementById('videosProcessedCount');
+const videosLimitCount = document.getElementById('videosLimitCount');
+const remainingCount = document.getElementById('remainingCount');
 
 const errorSection = document.getElementById('errorSection');
 const errorMessage = document.getElementById('errorMessage');
 const retryBtn = document.getElementById('retryBtn');
+
+const paymentModal = document.getElementById('paymentModal');
+const paymentQrCode = document.getElementById('paymentQrCode');
+const paymentQrFallback = document.getElementById('paymentQrFallback');
+const paymentReference = document.getElementById('paymentReference');
+const paymentStatus = document.getElementById('paymentStatus');
+const markPaidBtn = document.getElementById('markPaidBtn');
 
 // Event listeners
 selectFileBtn.addEventListener('click', () => videoInput.click());
@@ -114,6 +142,124 @@ function handleStyleSelection() {
     }
 }
 
+function getPaymentRequestState() {
+    return appConfig.paymentRequest || null;
+}
+
+function openPaymentModal() {
+    if (!paymentModal) return;
+    paymentModal.style.display = 'flex';
+    renderPaymentQr();
+    updatePaymentModalState();
+}
+
+function closePaymentModal() {
+    if (!paymentModal) return;
+    paymentModal.style.display = 'none';
+}
+
+function renderPaymentQr() {
+    if (!paymentQrCode) return;
+
+    if (paymentQrFallback) {
+        paymentQrFallback.textContent = 'Scan the QR or open the UPI link.';
+    }
+}
+
+function updatePaymentModalState() {
+    const request = getPaymentRequestState();
+    if (!markPaidBtn) return;
+
+    if (!request) {
+        markPaidBtn.disabled = false;
+        markPaidBtn.textContent = 'I have paid';
+        return;
+    }
+
+    if (request.status === 'pending') {
+        markPaidBtn.disabled = true;
+        markPaidBtn.textContent = 'Payment Pending';
+        if (paymentStatus) {
+            paymentStatus.className = 'payment-status payment-status--pending';
+            paymentStatus.textContent = 'Your payment request is waiting for admin approval.';
+        }
+        return;
+    }
+
+    if (request.status === 'approved') {
+        markPaidBtn.disabled = true;
+        markPaidBtn.textContent = 'Premium Activated';
+        if (paymentStatus) {
+            paymentStatus.className = 'payment-status payment-status--approved';
+            paymentStatus.textContent = `Premium approved. Your limit is now ${appConfig.premiumVideoLimit || '50'} videos.`;
+        }
+        return;
+    }
+
+    if (request.status === 'rejected') {
+        markPaidBtn.disabled = false;
+        markPaidBtn.textContent = 'I have paid';
+        if (paymentStatus) {
+            paymentStatus.className = 'payment-status payment-status--rejected';
+            paymentStatus.textContent = 'Your last payment request was rejected. Please submit a new one.';
+        }
+    }
+}
+
+async function submitPaymentRequest() {
+    try {
+        if (!markPaidBtn) return;
+
+        markPaidBtn.disabled = true;
+        markPaidBtn.textContent = 'Sending...';
+
+        const response = await fetch('/payments/request', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                payment_reference: paymentReference ? paymentReference.value.trim() : ''
+            })
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || 'Could not submit payment request');
+        }
+
+        appConfig.paymentRequest = result.payment_request || appConfig.paymentRequest;
+        if (paymentStatus) {
+            paymentStatus.className = 'payment-status payment-status--pending';
+            paymentStatus.textContent = result.message || 'Payment request sent to admin for approval.';
+        }
+        if (paymentReference) {
+            paymentReference.value = '';
+        }
+        updatePaymentModalState();
+        markPaidBtn.textContent = 'Request Sent';
+    } catch (error) {
+        if (markPaidBtn) {
+            markPaidBtn.disabled = false;
+            markPaidBtn.textContent = 'I have paid';
+        }
+        if (paymentStatus) {
+            paymentStatus.className = 'payment-status payment-status--rejected';
+            paymentStatus.textContent = error.message;
+        }
+        console.error('payment.request.failed', error);
+        alert(error.message || 'Could not submit payment request');
+    }
+}
+
+function initializePaymentModal() {
+    updatePaymentModalState();
+}
+
+window.openPaymentModal = openPaymentModal;
+window.closePaymentModal = closePaymentModal;
+window.submitPaymentRequest = submitPaymentRequest;
+
 // Language selection
 languageCheckboxes.forEach(checkbox => {
     checkbox.addEventListener('change', syncLanguageSelection);
@@ -138,6 +284,7 @@ retryBtn.addEventListener('click', reset);
 
 state.selectedLanguages = Array.from(languageCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
 handleStyleSelection();
+initializePaymentModal();
 
 // File select handlers
 function handleFileSelect(e) {
@@ -282,22 +429,49 @@ function updateProgress(percent, text) {
 function updateUsageBanner(data) {
     if (!data) return;
 
+    const configuredLimit = Number(data.active_video_limit);
+    const freeLimit = getConfiguredFreeLimit(data);
+    const hasFiniteLimit = Number.isFinite(configuredLimit) && configuredLimit > 0;
+    const effectiveLimit = hasFiniteLimit ? configuredLimit : (data.is_premium ? null : freeLimit);
+    const planLabel = data.plan_label || (data.is_premium ? 'Premium Account' : 'Free Account');
+
     if (usageHeading) {
-        usageHeading.textContent = data.is_premium ? 'Premium Account' : 'Free Account';
+        usageHeading.textContent = planLabel;
     }
 
     if (usageParagraph) {
-        if (data.is_premium) {
-            usageParagraph.textContent = 'Unlimited video processing';
-        } else if (typeof data.videos_processed !== 'undefined') {
-            const configuredLimit = Number(data.free_user_video_limit || freeUserVideoLimit || 2);
-            usageParagraph.textContent = `${data.videos_processed} of ${configuredLimit} videos used`;
+        if (typeof data.videos_processed !== 'undefined') {
+            usageParagraph.textContent = `${data.videos_processed} of ${effectiveLimit === null ? 'Unlimited' : effectiveLimit} videos used`;
         }
     }
 
+    if (usageUpdate && typeof data.videos_processed !== 'undefined') {
+        usageUpdate.style.display = 'block';
+        const processedCount = Number(data.videos_processed || 0);
+        const videosRemaining = typeof data.videos_remaining !== 'undefined'
+            ? data.videos_remaining
+            : (effectiveLimit === null ? 'Unlimited' : Math.max(effectiveLimit - processedCount, 0));
+
+        if (videosProcessedCount) {
+            videosProcessedCount.textContent = String(processedCount);
+        }
+
+        if (videosLimitCount) {
+            videosLimitCount.textContent = effectiveLimit === null ? 'Unlimited' : String(effectiveLimit);
+        }
+
+        if (remainingCount) {
+            remainingCount.textContent = String(videosRemaining);
+        }
+
+    }
+
     if (usageFill && typeof data.videos_processed !== 'undefined') {
-        const configuredLimit = Number(data.free_user_video_limit || freeUserVideoLimit || 2);
-        usageFill.style.width = `${Math.min((data.videos_processed / configuredLimit) * 100, 100)}%`;
+        if (effectiveLimit === null) {
+            usageFill.style.width = '100%';
+        } else {
+            usageFill.style.width = `${Math.min((Number(data.videos_processed) / effectiveLimit) * 100, 100)}%`;
+        }
     }
 }
 
@@ -366,7 +540,8 @@ function showTranscriptEditor(data) {
     state.selectedStyle = data.selected_style || state.selectedStyle;
     state.selectedLanguages = data.selected_languages || state.selectedLanguages;
     state.primaryLanguage = primaryLanguage;
-    transcriptMeta.textContent = `${transcript.original_filename} | ${transcript.segments.length} segments | ${formatLanguageLabel(primaryLanguage)} | ${formatLanguageList(state.selectedLanguages)}`;
+    state.transcriptionProvider = data.transcription_provider || state.transcriptionProvider || appConfig.transcriptionProvider || null;
+    transcriptMeta.textContent = `${transcript.original_filename} | ${transcript.segments.length} segments | ${formatLanguageLabel(primaryLanguage)} | ${formatLanguageList(state.selectedLanguages)} | ${formatProviderLabel(state.transcriptionProvider)}`;
     renderTranscriptEditor(transcript);
     previewStyles();
     window.scrollTo({ top: transcriptSection.offsetTop - 20, behavior: 'smooth' });
@@ -538,9 +713,13 @@ function showExportResults(data) {
     if (results.length > 0) {
         state.selectedStyle = data.selected_style || state.selectedStyle;
         state.selectedLanguages = data.selected_languages || state.selectedLanguages;
+        state.transcriptionProvider = data.transcription_provider || state.transcriptionProvider || appConfig.transcriptionProvider || null;
         totalCaptionsEl.textContent = results.reduce((sum, result) => sum + (result.total_captions || 0), 0);
         selectedStyleEl.textContent = capitalize(state.selectedStyle);
         selectedLanguageEl.textContent = formatLanguageList(state.selectedLanguages);
+        if (selectedProviderEl) {
+            selectedProviderEl.textContent = formatProviderLabel(state.transcriptionProvider);
+        }
 
         results.forEach((result, i) => {
             const title = document.createElement('h4');
@@ -562,6 +741,16 @@ function showExportResults(data) {
             });
             previewList.appendChild(download);
 
+            if (burnedVideoEnabled && result.burned_video_filename) {
+                const downloadVideo = document.createElement('button');
+                downloadVideo.className = 'btn btn--secondary btn--sm';
+                downloadVideo.textContent = `Download Video (${formatLanguageLabel(result.language)})`;
+                downloadVideo.addEventListener('click', () => {
+                    window.location.href = `/download/${result.burned_video_filename}`;
+                });
+                previewList.appendChild(downloadVideo);
+            }
+
             if (i < results.length - 1) {
                 const hr = document.createElement('hr');
                 previewList.appendChild(hr);
@@ -569,8 +758,23 @@ function showExportResults(data) {
         });
 
         downloadBtn.onclick = () => {
-            window.location.href = `/download/${results[0].srt_filename}`;
+            const primaryResult = results[0];
+            const filename = burnedVideoEnabled && primaryResult.burned_video_filename
+                ? primaryResult.burned_video_filename
+                : primaryResult.srt_filename;
+            window.location.href = `/download/${filename}`;
         };
+        downloadBtn.innerHTML = burnedVideoEnabled && results[0].burned_video_filename
+            ? `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>Download Captioned Video`
+            : `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>Download SRT File`;
         downloadBtn.style.display = 'inline-flex';
     } else {
         totalCaptionsEl.textContent = '0';
@@ -594,6 +798,7 @@ function reset() {
         selectedStyle: 'meme',
         selectedLanguages: ['en'],
         primaryLanguage: 'en',
+        transcriptionProvider: null,
         languageOutputs: [],
         transcriptJobId: null,
         transcript: null,
@@ -610,9 +815,11 @@ function reset() {
     stylePreviewSection.style.display = 'none';
     resultsSection.style.display = 'none';
     errorSection.style.display = 'none';
+    if (usageUpdate) usageUpdate.style.display = 'none';
     generateBtn.disabled = false;
     saveTranscriptBtn.disabled = false;
     exportTranscriptBtn.disabled = false;
+    downloadBtn.innerHTML = defaultDownloadBtnHtml;
     downloadBtn.style.display = 'inline-flex';
 
     styleCards.forEach(card => card.classList.remove('selected'));
@@ -638,4 +845,13 @@ function reset() {
 function capitalize(str) {
     if (!str) return '';
     return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function formatProviderLabel(provider) {
+    const value = String(provider || '').trim().toLowerCase();
+    if (!value) return 'Configured Provider';
+    if (value === 'assemblyai') return 'AssemblyAI';
+    if (value === 'whisper') return 'Whisper';
+    if (value === 'gemini') return 'Gemini';
+    return value.charAt(0).toUpperCase() + value.slice(1);
 }
